@@ -76,26 +76,6 @@ Detector (SSDLite, held-out last 20 % of every labelled segment, IoU >= 0.5): ol
 mAP50 = 0.01, retrained `models/ssd_v2.pth` mAP50 = 0.31 (board 0.67, mat 0.33, pipe 0.18, radiator 0.05).
 The best epoch was picked on the same split, so this is slightly optimistic.
 
-## What was wrong in the original code (fixed)
-
-| # | Bug | Effect |
-|---|-----|--------|
-| 1 | Stereo extrinsic computed as `T_BC1*T_BC0^-1` instead of `T_BC1^-1*T_BC0` | baseline expressed in the body frame -> OpenCV rectified the rig as a **vertical** stereo pair; every depth was wrong (median 2.1 m error vs laser scan, now 6 cm) |
-| 2 | Left/right images paired by sorted index | V2_01 has 8 missing left images -> every pair was 0.4 s apart. Now paired by timestamp |
-| 3 | Re-initialisation triangulated in the *current* camera frame | pose reset at every re-init, the trajectory was unrelated pieces. Now landmarks live in one world frame |
-| 4 | Only the 14 *closest* points kept | ill-conditioned PnP, re-init almost every frame |
-| 5 | Stereo matching: F-matrix RANSAC or 8 px row tolerance + "use all matches if too strict", no disparity sign check | wrong correspondences; for a rectified pair the epipolar geometry is known exactly |
-| 6 | Keypoints from coarse ORB octaves used directly | disparity error of several px -> large depth error (grows as Z^2) |
-| 7 | PnP: 10 px RANSAC threshold, no refinement, no motion prior, no sanity check | noisy poses |
-| 8 | Camera -> body: `T_BS^-1` applied to a world point, rectification rotation `R1` ignored | wrong frame for the comparison with ground truth |
-| 9 | GT: next sample via `searchsorted`, position only | time misalignment; now linear + SLERP interpolation |
-| 10 | Evaluation only with Sim(3) Umeyama | hides scale errors (stereo is metric) -> SE(3) ATE + scale + anchored drift + RPE |
-| 11 | `sparse_f.py` had undefined variables (`start_frame`, `pts2`, `pts3`, ...) | the "sparse" module never ran |
-| 12 | Detector trained with boxes in 752x480 px on a 320x320 tensor, double normalisation | wrong boxes, weaker transfer from pretrained weights |
-| 13 | Detection metric matched every prediction to every GT, scored on training frames | meaningless score. Now IoU >= 0.5, AP@0.5, time-based held-out split |
-| 14 | (dataset) the official V2_01 calibration leaves a 1.7-1.9 px vertical offset after rectification (~0.24 deg relative pitch) | 60 % of correct matches rejected, ATE 0.92 m -> online self-calibration, ATE 0.10 m |
-| 15 | (found while testing) lost-frame coasting reused its own velocity, rotations never re-orthonormalised, NaN poses passed the jump check | pose overflow to 1e+200 on V2_01's landing |
-
 ## Layout
 
 ```
