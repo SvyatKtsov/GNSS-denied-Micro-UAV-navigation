@@ -1,0 +1,9 @@
+# large / reproducible -> Google Drive or public download
+data/
+code_diploma_.zip
+_archive/
+models/heavy_model.pth
+models/faster_rcnn_euroc.pth
+models/ssd_model.pth
+__pycache__/
+*.pyc

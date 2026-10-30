@@ -1,0 +1,1260 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    АРХІТЕКТУРА ПРОГРАМНОГО ЗАСТОСУНКУ ВІЗУАЛЬНОЇ ОДОМЕТРІЇ БПЛА
+    Software Architecture Design - Conceptual Level
+    
+    Розділ 2.6: Проєктування архітектури програмного застосунку (концептуальний рівень)
+    
+    Описує:
+    - Загальний архітектурний підхід системи
+    - Логічні компоненти та їх призначення
+    - Взаємодія між компонентами
+    - Потоки даних та послідовність операцій
+    - Відповідність функціональним та нефункціональним вимогам
+-->
+
+<architecture>
+    <metadata>
+        <system_name>UAV Visual Odometry System</system_name>
+        <architecture_level>Conceptual (High-Level)</architecture_level>
+        <version>1.0</version>
+        <date>2026-02-13</date>
+        <description>Архітектура програмного застосунку для визначення траєкторії руху БПЛА на основі стереовідеопослідовності</description>
+    </metadata>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 1: ЗАГАЛЬНИЙ АРХІТЕКТУРНИЙ ПІДХІД (OVERALL ARCHITECTURAL APPROACH) -->
+    <!-- ============================================================================ -->
+    <architectural_approach>
+        <approach_type>Modular Pipeline Architecture with Layered Components</approach_type>
+        
+        <description>
+            Система побудована як послідовний конвеєр (pipeline) обробки даних з чітким розділенням 
+            відповідальності між логічними компонентами. Архітектура складається з трьох основних шарів:
+            
+            1. DATA ACQUISITION & ANALYSIS LAYER
+               └─ Завантаження та експлоративний аналіз вхідних даних
+               
+            2. ALGORITHMIC PROCESSING LAYER
+               └─ Основна VO pipeline (sparse/dense) з послідовними етапами обробки
+               
+            3. PRESENTATION & CONTROL LAYER
+               └─ Користувацький інтерфейс, візуалізація результатів, збереження даних
+        </description>
+
+        <architectural_style>
+            <style>Component-Based Pipeline</style>
+            <pattern>Producer-Consumer with Sequential Data Flow</pattern>
+            <characteristics>
+                - Компоненти виконуються послідовно
+                - Кожний компонент проводить специфічну трансформацію даних
+                - Мінімальні залежності між компонентами
+                - Можливість паралельного запуску альтернативних трубопроводів (Sparse vs Dense)
+            </characteristics>
+        </architectural_style>
+
+        <system_boundaries>
+            <external_systems>
+                <system>
+                    <name>UAV Camera System</name>
+                    <role>Source of stereo video stream and camera calibration data</role>
+                    <interaction>Provides raw PNG image pairs with timestamps</interaction>
+                    <stereotype>Data Source</stereotype>
+                </system>
+                <system>
+                    <name>Ground Truth System (Vicon/IMU)</name>
+                    <role>Reference trajectory for accuracy validation</role>
+                    <interaction>Provides CSV file with reference poses</interaction>
+                    <stereotype>Data Source (Optional)</stereotype>
+                </system>
+                <system>
+                    <name>Researcher/User</name>
+                    <role>System operator and result analyzer</role>
+                    <interaction>Configures parameters, runs analysis, reviews results</interaction>
+                    <stereotype>Actor</stereotype>
+                </system>
+            </external_systems>
+
+            <system_scope>
+                <included>
+                    - Data loading and preprocessing
+                    - Exploratory data analysis (EDA)
+                    - Feature detection and extraction
+                    - Feature tracking and triangulation
+                    - Pose estimation (PnP)
+                    - Trajectory reconstruction and alignment
+                    - Accuracy evaluation
+                    - Result visualization and export
+                    - Configuration management
+                </included>
+                <excluded>
+                    - Real-time hardware synchronization
+                    - Database management
+                    - Multi-user scenarios
+                    - Network communication
+                    - Long-term data persistence
+                </excluded>
+            </system_scope>
+        </system_boundaries>
+
+        <user_roles>
+            <role>
+                <name>Researcher / Vision Engineer</name>
+                <responsibilities>
+                    - Configure algorithm parameters
+                    - Select processing mode (sparse/dense)
+                    - Run visual odometry pipeline
+                    - Analyze accuracy metrics
+                    - Compare results between modes
+                    - Export trajectory data
+                </responsibilities>
+                <interaction_points>
+                    - Parameter configuration UI
+                    - Real-time visualization
+                    - Result analysis tools
+                    - File export dialogs
+                </interaction_points>
+            </role>
+        </user_roles>
+    </architectural_approach>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 2: ЛОГІЧНІ КОМПОНЕНТИ СИСТЕМИ (LOGICAL COMPONENTS) -->
+    <!-- ============================================================================ -->
+    <logical_components>
+        <component id="comp_data_loader">
+            <name>Data Loader & Preprocessor</name>
+            <stereotype>Data Source Component</stereotype>
+            <layer>DATA ACQUISITION & ANALYSIS LAYER</layer>
+            <purpose>
+                Завантажувати стереозображення з файлової системи та попередньо обробляти їх
+                (коригування спотворень, випрямлення, конвертація форматів)
+            </purpose>
+            <responsibilities>
+                - Load stereo image pairs from disk
+                - Validate image dimensions and channels
+                - Load camera calibration parameters (YAML format)
+                - Apply distortion correction
+                - Apply stereo rectification
+                - Convert to grayscale for processing
+            </responsibilities>
+            <inputs>
+                <input>File paths to image sequences</input>
+                <input>Camera calibration files (sensor.yaml)</input>
+            </inputs>
+            <outputs>
+                <output>Preprocessed image pairs (corrected, rectified)</output>
+                <output>Camera intrinsics and extrinsics</output>
+            </outputs>
+            <dependencies>None (source component)</dependencies>
+            <requirements_mapped>
+                <requirement>F1: Load and preprocess stereo images</requirement>
+                <requirement>NFR02: Reproducibility of experiments</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_eda">
+            <name>Exploratory Data Analysis (EDA)</name>
+            <stereotype>Analysis Component</stereotype>
+            <layer>DATA ACQUISITION & ANALYSIS LAYER</layer>
+            <purpose>
+                Проводити попередній аналіз набору даних для оцінки якості,
+                різноманітності та характеристик вхідних зображень
+            </purpose>
+            <responsibilities>
+                - Analyze image statistics (brightness, contrast, color distribution)
+                - Detect baseline distance between stereo cameras
+                - Verify image synchronization and pairing
+                - Generate summary statistics and histograms
+                - Identify potential issues in dataset
+                - Provide feedback on data quality
+            </responsibilities>
+            <inputs>
+                <input>Loaded stereo image pairs</input>
+                <input>Camera parameters</input>
+            </inputs>
+            <outputs>
+                <output>Data quality report</output>
+                <output>Visualization of data characteristics</output>
+                <output>Warnings/recommendations for processing</output>
+            </outputs>
+            <dependencies>comp_data_loader</dependencies>
+            <requirements_mapped>
+                <requirement>NFR02: Reproducibility (document data characteristics)</requirement>
+                <requirement>F1: Data validation</requirement>
+            </requirements_mapped>
+            <notes>Optional component - can be skipped for known-good datasets</notes>
+        </component>
+
+        <component id="comp_gt_loader">
+            <name>Ground Truth Loader</name>
+            <stereotype>Data Source Component</stereotype>
+            <layer>DATA ACQUISITION & ANALYSIS LAYER</layer>
+            <purpose>
+                Завантажувати еталонну траєкторію для цілей валідації та оцінки точності алгоритму
+            </purpose>
+            <responsibilities>
+                - Load ground truth trajectory from CSV file
+                - Parse timestamp and position data
+                - Validate data completeness
+                - Handle missing or corrupted records
+            </responsibilities>
+            <inputs>
+                <input>Ground truth CSV file (state_groundtruth_estimate0/data.csv)</input>
+            </inputs>
+            <outputs>
+                <output>Ground truth trajectory (timestamps, 3D positions)</output>
+            </outputs>
+            <dependencies>None (optional source)</dependencies>
+            <requirements_mapped>
+                <requirement>F10: Accuracy comparison with ground truth</requirement>
+                <requirement>NFR03: Result visualization</requirement>
+            </requirements_mapped>
+            <notes>Optional - system can run without GT for trajectory-only mode</notes>
+        </component>
+
+        <component id="comp_config_manager">
+            <name>Configuration Manager</name>
+            <stereotype>Control Component</stereotype>
+            <layer>PRESENTATION & CONTROL LAYER</layer>
+            <purpose>
+                Управляти параметрами алгоритму та забезпечувати їх валідацію
+            </purpose>
+            <responsibilities>
+                - Store default configuration parameters
+                - Accept user input for parameter modification
+                - Validate parameter values and constraints
+                - Pass valid configuration to VO pipeline
+                - Provide error messages for invalid inputs
+            </responsibilities>
+            <inputs>
+                <input>User parameter inputs from GUI</input>
+            </inputs>
+            <outputs>
+                <output>Validated configuration dictionary</output>
+                <output>Error messages for invalid parameters</output>
+            </outputs>
+            <dependencies>None</dependencies>
+            <requirements_mapped>
+                <requirement>NFR01: Limited computational resources (parameter tuning)</requirement>
+                <requirement>F14: Parameter configuration via UI</requirement>
+                <requirement>Error handling requirement</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_feature_detector">
+            <name>Feature Detector</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Виявляти характерні точки (keypoints) у стереозображеннях та обчислювати їх дескриптори
+            </purpose>
+            <responsibilities>
+                - Detect ORB features in left and right images
+                - Sort features by response strength
+                - Limit number of features (MAX_KP)
+                - Compute feature descriptors
+                - Return keypoints and descriptors
+            </responsibilities>
+            <inputs>
+                <input>Preprocessed grayscale images (left, right)</input>
+                <input>ORB_FEATURES, MAX_KP parameters</input>
+            </inputs>
+            <outputs>
+                <output>Keypoints (coordinates, scale, orientation)</output>
+                <output>Feature descriptors (binary vectors)</output>
+            </outputs>
+            <dependencies>comp_data_loader</dependencies>
+            <requirements_mapped>
+                <requirement>F2: Detect ORB features</requirement>
+                <requirement>NFR01: Computational efficiency</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_feature_filter">
+            <name>Feature Filter (Grid Bucketing)</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Фільтрувати щільне представлення ознак у розріджене за допомогою просторового розбиття
+            </purpose>
+            <responsibilities>
+                - Divide image into spatial grid cells
+                - Distribute keypoints to cells based on position
+                - Select top-k strongest features per cell
+                - Maintain spatial distribution of features
+                - Reduce computational load while preserving coverage
+            </responsibilities>
+            <inputs>
+                <input>Dense keypoints from Feature Detector</input>
+                <input>Grid parameters (divisions, k_per_cell)</input>
+            </inputs>
+            <outputs>
+                <output>Sparse keypoints (reduced count, spatially distributed)</output>
+                <output>Recomputed descriptors for sparse keypoints</output>
+            </outputs>
+            <dependencies>comp_feature_detector</dependencies>
+            <mode_dependent>Only in Sparse mode (F3)</mode_dependent>
+            <requirements_mapped>
+                <requirement>F3: Grid filter keypoints (sparse mode)</requirement>
+                <requirement>F4: Support both sparse and dense modes</requirement>
+                <requirement>NFR01: Improve computational efficiency</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_feature_matcher">
+            <name>Feature Matcher</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Знаходити відповідності між ключовими точками на лівій та правій камерах стереопари
+            </purpose>
+            <responsibilities>
+                - Match features between left and right images
+                - Apply Lowe's ratio test for quality filtering
+                - Optional epipolar constraint filtering
+                - Return validated matches with distance metrics
+            </responsibilities>
+            <inputs>
+                <input>Keypoints and descriptors (left and right images)</input>
+                <input>Ratio threshold, epipolar threshold parameters</input>
+            </inputs>
+            <outputs>
+                <output>Feature matches (query_idx, train_idx, distance)</output>
+                <output>Match count and quality statistics</output>
+            </outputs>
+            <dependencies>comp_feature_detector, comp_feature_filter</dependencies>
+            <requirements_mapped>
+                <requirement>F4: Feature matching</requirement>
+                <requirement>NFR01: Robust matching under noise</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_triangulator">
+            <name>3D Triangulator</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Відновлювати тривимірні координати точок на основі їх двовимірних проекцій у стереопарі
+            </purpose>
+            <responsibilities>
+                - Extract 2D points from matched features
+                - Apply triangulation algorithm
+                - Filter points by depth range (MIN_DEPTH, MAX_DEPTH)
+                - Return valid 3D points and their projections
+            </responsibilities>
+            <inputs>
+                <input>Feature matches from Feature Matcher</input>
+                <input>Camera projection matrices (P_l, P_r)</input>
+                <input>Depth range constraints (MIN_DEPTH, MAX_DEPTH)</input>
+            </inputs>
+            <outputs>
+                <output>3D points (x, y, z coordinates)</output>
+                <output>2D projections in left image</output>
+                <output>Depth statistics (min, max, mean depth)</output>
+            </outputs>
+            <dependencies>comp_feature_matcher</dependencies>
+            <requirements_mapped>
+                <requirement>F5: Triangulation of 3D points</requirement>
+                <requirement>NFR04: Handle depth range constraints</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_tracker">
+            <name>Point Tracker (Optical Flow)</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Відслідковувати рух ключових точок між послідовними кадрами за допомогою оптичного потоку
+            </purpose>
+            <responsibilities>
+                - Track 3D points across consecutive frames using optical flow
+                - Compute 2D displacement in current frame
+                - Filter tracks by success status
+                - Handle tracking failures and reinitialize if needed
+            </responsibilities>
+            <inputs>
+                <input>Previous grayscale frame</input>
+                <input>Current grayscale frame</input>
+                <input>2D projections of 3D points from previous frame</input>
+            </inputs>
+            <outputs>
+                <output>Tracked 2D points in current frame</output>
+                <output>Corresponding 3D points</output>
+                <output>Tracking status (success/failure per point)</output>
+            </outputs>
+            <dependencies>comp_triangulator</dependencies>
+            <requirements_mapped>
+                <requirement>F6: Optical flow tracking (Lucas-Kanade)</requirement>
+                <requirement>NFR01: Real-time performance</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_pose_estimator">
+            <name>Pose Estimator (PnP)</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Оцінювати положення та орієнтацію камери на основі відомих 3D точок та їх 2D проекцій
+            </purpose>
+            <responsibilities>
+                - Solve Perspective-n-Point problem using RANSAC
+                - Extract camera rotation and translation
+                - Compute camera center position
+                - Transform position to body frame coordinates
+                - Filter by inlier count (MIN_MATCHES)
+            </responsibilities>
+            <inputs>
+                <input>3D points (tracked)</input>
+                <input>2D projections (tracked) in current frame</input>
+                <input>Camera intrinsics</input>
+                <input>PnP parameters (reprojection error, confidence)</input>
+            </inputs>
+            <outputs>
+                <output>Camera pose (rotation matrix R, translation vector t)</output>
+                <output>Camera position in body frame</output>
+                <output>RANSAC inlier count</output>
+            </outputs>
+            <dependencies>comp_tracker</dependencies>
+            <reinitialization_trigger>If tracked points < MIN_MATCHES → trigger Feature Detector</reinitialization_trigger>
+            <requirements_mapped>
+                <requirement>F7: PnP pose estimation</requirement>
+                <requirement>NFR01: Robust to outliers (via RANSAC)</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_trajectory_accumulator">
+            <name>Trajectory Accumulator</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Накопичувати послідовність оцінених позицій камери для формування траєкторії руху
+            </purpose>
+            <responsibilities>
+                - Maintain trajectory as sequence of camera positions
+                - Append new pose after successful PnP estimation
+                - Track frame count and temporal information
+                - Store both VO and GT positions in parallel
+                - Handle reinitialization events
+            </responsibilities>
+            <inputs>
+                <input>Camera pose from Pose Estimator</input>
+                <input>Ground truth pose (synchronized by timestamp)</input>
+            </inputs>
+            <outputs>
+                <output>Unaligned VO trajectory (list of 3D positions)</output>
+                <output>Ground truth trajectory (for comparison)</output>
+            </outputs>
+            <dependencies>comp_pose_estimator, comp_gt_loader</dependencies>
+            <requirements_mapped>
+                <requirement>F8: Trajectory accumulation</requirement>
+                <requirement>F9: Alignment preparation</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_aligner">
+            <name>Trajectory Aligner (Umeyama)</name>
+            <stereotype>Processing Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Вирівнювати траєкторію VO відносно еталонної траєкторії GT за допомогою алгоритму Умейами
+            </purpose>
+            <responsibilities>
+                - Compute optimal rotation, scale, and translation
+                - Align VO trajectory to GT coordinate frame
+                - Calculate transformation parameters (s, R, t)
+                - Return aligned trajectory
+            </responsibilities>
+            <inputs>
+                <input>Unaligned VO trajectory</input>
+                <input>Ground truth trajectory</input>
+            </inputs>
+            <outputs>
+                <output>Aligned VO trajectory</output>
+                <output>Alignment parameters (scale, rotation, translation)</output>
+            </outputs>
+            <dependencies>comp_trajectory_accumulator</dependencies>
+            <conditional>Only executed if ground truth available AND sufficient poses collected (≥5)</conditional>
+            <requirements_mapped>
+                <requirement>F9: Alignment with Umeyama algorithm</requirement>
+                <requirement>NFR03: Enable trajectory comparison</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_metrics_calculator">
+            <name>Metrics Calculator</name>
+            <stereotype>Analysis Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Обчислювати кількісні метрики точності траєкторії VO
+            </purpose>
+            <responsibilities>
+                - Compute RMSE (Root Mean Square Error)
+                - Calculate max and mean positional errors
+                - Compute trajectory length
+                - Calculate processing statistics (FPS, computation time)
+                - Generate comprehensive accuracy report
+            </responsibilities>
+            <inputs>
+                <input>Aligned VO trajectory</input>
+                <input>Ground truth trajectory</input>
+            </inputs>
+            <outputs>
+                <output>Accuracy metrics (RMSE, max error, mean error)</output>
+                <output>Efficiency metrics (FPS, processing time)</output>
+                <output>Metrics report</output>
+            </outputs>
+            <dependencies>comp_aligner</dependencies>
+            <requirements_mapped>
+                <requirement>F10: Compute accuracy metrics (RMSE)</requirement>
+                <requirement>F13: Feature comparison analysis</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_comparator">
+            <name>Sparse vs Dense Comparator</name>
+            <stereotype>Analysis Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Проводити порівняльний аналіз результатів sparse та dense обробки
+            </purpose>
+            <responsibilities>
+                - Run VO pipeline twice (sparse and dense modes)
+                - Extract metrics from both pipelines
+                - Compare accuracy and performance
+                - Analyze trade-offs
+                - Generate comparison report with conclusions
+            </responsibilities>
+            <inputs>
+                <input>VO metrics (sparse mode)</input>
+                <input>VO metrics (dense mode)</input>
+                <input>Ground truth trajectory</input>
+            </inputs>
+            <outputs>
+                <output>Comparison report (RMSE diff, efficiency ratio, conclusions)</output>
+                <output>Comparative visualizations</output>
+            </outputs>
+            <dependencies>All algorithmic components (runs both pipelines)</dependencies>
+            <conditional>Only executed if COMPARE_SPARSE_DENSE mode enabled</conditional>
+            <requirements_mapped>
+                <requirement>F13: Feature comparison analysis</requirement>
+                <requirement>Research objective: Verify sparse vs dense hypothesis</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_visualizer">
+            <name>Result Visualizer</name>
+            <stereotype>Presentation Component</stereotype>
+            <layer>PRESENTATION & CONTROL LAYER</layer>
+            <purpose>
+                Візуалізувати результати обробки (траєкторії, точки, графіки) для користувача
+            </purpose>
+            <responsibilities>
+                - Create 3D trajectory plots (VO vs GT)
+                - Create 2D projections (X-Z view)
+                - Visualize feature point clouds with depth coloring
+                - Draw point annotations with distances
+                - Render real-time updates during processing
+                - Save visualization to PNG files
+            </responsibilities>
+            <inputs>
+                <input>Aligned trajectory</input>
+                <input>Tracked points and distances</input>
+                <input>Accuracy metrics</input>
+                <input>Depth maps</input>
+            </inputs>
+            <outputs>
+                <output>Real-time visualization (matplotlib figures)</output>
+                <output>PNG image files (trajectory_3d.png, comparison_sparse_dense.png)</output>
+            </outputs>
+            <dependencies>comp_aligner, comp_metrics_calculator, comp_trajectory_accumulator</dependencies>
+            <requirements_mapped>
+                <requirement>F12: Visualize results</requirement>
+                <requirement>NFR03: Visual representation of results</requirement>
+                <requirement>NFR02: Result reproducibility</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_file_exporter">
+            <name>File Exporter</name>
+            <stereotype>Presentation Component</stereotype>
+            <layer>PRESENTATION & CONTROL LAYER</layer>
+            <purpose>
+                Зберігати результати обробки у файли для подальшого аналізу та архівування
+            </purpose>
+            <responsibilities>
+                - Export aligned trajectory to TXT/CSV/JSON format
+                - Export ground truth trajectory
+                - Save alignment parameters
+                - Include metadata (RMSE, scale, rotation, translation)
+                - Support multiple output formats
+            </responsibilities>
+            <inputs>
+                <input>Aligned trajectory</input>
+                <input>Ground truth trajectory</input>
+                <input>Alignment parameters</input>
+                <input>Metrics (RMSE, etc.)</input>
+                <input>Output format preference (TXT/CSV/JSON)</input>
+            </inputs>
+            <outputs>
+                <output>vo_xyz_aligned.txt (or .csv, .json)</output>
+                <output>gt_xyz_list.txt</output>
+                <output>trajectory_data.json (if JSON format selected)</output>
+            </outputs>
+            <dependencies>comp_aligner, comp_metrics_calculator</dependencies>
+            <requirements_mapped>
+                <requirement>F11: Save processing results</requirement>
+                <requirement>NFR03: Result export in multiple formats</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_gui">
+            <name>Graphical User Interface (GUI)</name>
+            <stereotype>Presentation Component</stereotype>
+            <layer>PRESENTATION & CONTROL LAYER</layer>
+            <purpose>
+                Надати користувачу інтерфейс для взаємодії з системою (конфігурація, запуск, аналіз результатів)
+            </purpose>
+            <responsibilities>
+                - Display parameter input form
+                - Accept user configuration changes
+                - Start/stop VO processing
+                - Display real-time processing status
+                - Show error messages and warnings
+                - Trigger result visualization and export
+            </responsibilities>
+            <inputs>
+                <input>User input (parameter values, buttons)</input>
+                <input>Processing status and progress</input>
+                <input>Results (metrics, visualizations)</input>
+            </inputs>
+            <outputs>
+                <output>Configuration parameters to Config Manager</output>
+                <output>Control signals (start, stop)</output>
+                <output>Display results to user</output>
+            </outputs>
+            <dependencies>comp_config_manager, comp_visualizer, comp_file_exporter</dependencies>
+            <requirements_mapped>
+                <requirement>F14: Parameter configuration UI</requirement>
+                <requirement>NFR03: User-friendly result visualization</requirement>
+                <requirement>Error handling and user feedback</requirement>
+            </requirements_mapped>
+        </component>
+
+        <component id="comp_vo_pipeline">
+            <name>Visual Odometry Pipeline (Composite)</name>
+            <stereotype>Process Component</stereotype>
+            <layer>ALGORITHMIC PROCESSING LAYER</layer>
+            <purpose>
+                Скоординувати послідовність фільтрів, трекінгу, локалізації та накопичення траєкторії
+            </purpose>
+            <composition>
+                Orchestrates execution of:
+                - Feature Detector
+                - Feature Filter (conditional: sparse mode)
+                - Feature Matcher
+                - Triangulator
+                - Tracker
+                - Pose Estimator
+                - Trajectory Accumulator
+            </composition>
+            <execution_model>
+                Frame-by-frame sequential pipeline:
+                Frame 0: Detect features → Match → Triangulate → Initialize
+                Frame i: Track points → PnP → Accumulate trajectory
+                If tracking fails: Reinitialize (detect → match → triangulate)
+            </execution_model>
+            <requirements_mapped>
+                <requirement>F1-F8: Complete VO processing cycle</requirement>
+                <requirement>All computational requirements</requirement>
+            </requirements_mapped>
+        </component>
+    </logical_components>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 3: ВЗАЄМОДІЯ КОМПОНЕНТІВ (COMPONENT INTERACTIONS) -->
+    <!-- ============================================================================ -->
+    <interactions>
+        <interaction id="int_config_flow">
+            <name>Configuration Flow</name>
+            <description>How parameters are configured and passed to processing components</description>
+            <sequence>
+                <step sequence="1">User → GUI: Enter configuration parameters</step>
+                <step sequence="2">GUI → Config Manager: Submit parameters</step>
+                <step sequence="3">Config Manager: Validate parameters</step>
+                <step sequence="4">Config Manager → GUI: Display error or validation success</step>
+                <step sequence="5">Config Manager → VO Pipeline: Pass validated configuration</step>
+            </sequence>
+            <data_exchanged>Configuration dictionary with all algorithm parameters</data_exchanged>
+            <temporal>Before processing begins</temporal>
+        </interaction>
+
+        <interaction id="int_data_loading_flow">
+            <name>Data Loading & Preparation Flow</name>
+            <description>Initial data acquisition and preprocessing</description>
+            <sequence>
+                <step sequence="1">Data Loader: Scan file system for image pairs</step>
+                <step sequence="2">Data Loader: Load YAML calibration files</step>
+                <step sequence="3">Data Loader: Load and preprocess stereo images</step>
+                <step sequence="4">EDA (optional): Analyze data characteristics</step>
+                <step sequence="5">GT Loader (optional): Load ground truth trajectory</step>
+            </sequence>
+            <data_exchanged>Preprocessed images, camera parameters, GT trajectory</data_exchanged>
+            <temporal>Once at startup</temporal>
+        </interaction>
+
+        <interaction id="int_main_vo_pipeline">
+            <name>Main VO Processing Pipeline</name>
+            <description>Frame-by-frame visual odometry computation</description>
+            <execution_flow>
+                <phase name="Initialization (Frame 0)">
+                    <step>Feature Detector: Detect ORB features in left and right images</step>
+                    <step>Feature Filter: Apply grid bucketing (if sparse mode)</step>
+                    <step>Feature Matcher: Match features between stereo pair</step>
+                    <step>Triangulator: Recover 3D points</step>
+                    <decision>If triangulated points < MIN_MATCHES → Error, retry</decision>
+                </phase>
+                
+                <phase name="Frame Processing Loop (Frame 1 to N)">
+                    <step>Tracker: Track features using optical flow</step>
+                    <decision>If tracked points < MIN_MATCHES → Reinitialize</decision>
+                    <step>Pose Estimator: Estimate camera pose via PnP</step>
+                    <decision>If PnP succeeds AND inliers >= MIN_MATCHES → Continue</decision>
+                    <step>Trajectory Accumulator: Add pose to trajectory</step>
+                    <step>Visualizer: Update real-time visualization (every PLOT_EVERY frames)</step>
+                </phase>
+                
+                <phase name="Post-Processing">
+                    <step>Aligner: Align trajectory with ground truth (if available)</step>
+                    <step>Metrics Calculator: Compute accuracy metrics</step>
+                    <step>Visualizer: Generate final plots</step>
+                    <step>File Exporter: Save results to files</step>
+                </phase>
+            </execution_flow>
+        </interaction>
+
+        <interaction id="int_comparison_flow">
+            <name>Sparse vs Dense Comparison Flow</name>
+            <description>How comparison analysis is conducted</description>
+            <sequence>
+                <step sequence="1">Comparator: Run VO Pipeline in Sparse mode</step>
+                <step sequence="2">Comparator: Collect metrics (RMSE, processing time, feature count)</step>
+                <step sequence="3">Comparator: Run VO Pipeline in Dense mode</step>
+                <step sequence="4">Comparator: Collect metrics</step>
+                <step sequence="5">Comparator: Compare metrics (differences, ratios, efficiency)</step>
+                <step sequence="6">Comparator: Generate comparison report and visualizations</step>
+            </sequence>
+            <parallelization>Pipelines run sequentially (can be parallelized in future)</parallelization>
+            <data_exchanged>Metrics dictionaries, trajectory arrays, comparison report</data_exchanged>
+        </interaction>
+
+        <interaction id="int_error_handling">
+            <name>Error Handling & Recovery</name>
+            <description>How system handles processing failures</description>
+            <scenario name="Low Tracking Success">
+                <condition>Tracked points < MIN_MATCHES</condition>
+                <response>
+                    <step>Pose Estimator: Skip current frame</step>
+                    <step>Feature Detector: Trigger reinitialization</step>
+                    <step>Process continues from Feature Detector in next frame</step>
+                </response>
+            </scenario>
+            <scenario name="Invalid Configuration">
+                <condition>Configuration validation fails</condition>
+                <response>
+                    <step>Config Manager: Identify invalid parameters</step>
+                    <step>Config Manager → GUI: Display error message</step>
+                    <step>GUI: Highlight problematic field</step>
+                    <step>User corrects and resubmits</step>
+                </response>
+            </scenario>
+            <scenario name="PnP Estimation Failure">
+                <condition>PnP RANSAC fails or inliers < MIN_MATCHES</condition>
+                <response>
+                    <step>Pose Estimator: Return failure status</step>
+                    <step>VO Pipeline: Retain previous pose (no trajectory update)</step>
+                    <step>Next frame uses same pose for tracking</step>
+                </response>
+            </scenario>
+        </interaction>
+    </interactions>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 4: ДИАГРАМИ АРХІТЕКТУРИ (ARCHITECTURE DIAGRAMS) -->
+    <!-- ============================================================================ -->
+    <architecture_diagrams>
+        <!-- C4 Model - System Context -->
+        <diagram id="c4_context">
+            <name>C4 Model - System Context Diagram</name>
+            <description>Shows the system and its external entities at highest level</description>
+            <ascii_diagram>
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            SYSTEM CONTEXT DIAGRAM                               │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                   │
+│  ┌──────────────────┐                                                            │
+│  │   Researcher     │                                                            │
+│  │   / Vision       │                                                            │
+│  │   Engineer       │                                                            │
+│  └────────┬─────────┘                                                            │
+│           │                                                                       │
+│           │ Configure params                                                     │
+│           │ View results                                                         │
+│           │ Export data                                                          │
+│           ↓                                                                       │
+│  ┌────────────────────────────────────────────────────────────────────────────┐ │
+│  │                                                                             │ │
+│  │   UAV VISUAL ODOMETRY SYSTEM                                              │ │
+│  │   ┌──────────────────────────────────────────────────────────────────┐   │ │
+│  │   │  GUI Layer: Parameter Configuration, Result Visualization       │   │ │
+│  │   └──────────────────────────────────────────────────────────────────┘   │ │
+│  │   ┌──────────────────────────────────────────────────────────────────┐   │ │
+│  │   │  Algorithm Layer: VO Pipeline (Sparse/Dense), Alignment, Metrics│   │ │
+│  │   └──────────────────────────────────────────────────────────────────┘   │ │
+│  │   ┌──────────────────────────────────────────────────────────────────┐   │ │
+│  │   │  Data Layer: Loading, Preprocessing, EDA, Result Export         │   │ │
+│  │   └──────────────────────────────────────────────────────────────────┘   │ │
+│  │                                                                             │ │
+│  └────────┬────────────────────────────────────────────────────────────────────┘ │
+│           │                                                                       │
+│    ┌──────┼────────┐                                                             │
+│    ↓      ↓        ↓                                                             │
+│  ┌──────┐ ┌──────┐ ┌──────────────────────┐                                     │
+│  │Camera│ │Calib │ │Ground Truth          │                                     │
+│  │Data  │ │Files │ │(Vicon/IMU)           │                                     │
+│  │(PNG) │ │(YAML)│ │Reference Trajectory  │                                     │
+│  └──────┘ └──────┘ └──────────────────────┘                                     │
+│    External Data Sources                                                         │
+│                                                                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
+            </ascii_diagram>
+        </diagram>
+
+        <!-- C4 Model - Container Diagram -->
+        <diagram id="c4_containers">
+            <name>C4 Model - Container Diagram</name>
+            <description>Shows major containers and their interactions</description>
+            <ascii_diagram>
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                          CONTAINER ARCHITECTURE                                    │
+├───────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                     │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│  │                      USER PRESENTATION LAYER                                │ │
+│  │  ┌──────────────┐      ┌──────────────┐      ┌──────────────────────────┐ │ │
+│  │  │     GUI      │◄────►│   Config     │◄────►│   Visualizer &           │ │ │
+│  │  │  Window      │      │   Manager    │      │   File Exporter         │ │ │
+│  │  └──────┬───────┘      └──────────────┘      └──────────────────────────┘ │ │
+│  │         │                                             ▲                      │ │
+│  └─────────┼─────────────────────────────────────────────┼──────────────────────┘ │
+│            │                                             │                         │
+│  ┌─────────┼─────────────────────────────────────────────┼──────────────────────┐ │
+│  │         ↓                 DATA & ANALYSIS LAYER       │                      │ │
+│  │  ┌──────────────┐   ┌──────────────────────────────┐  │                      │ │
+│  │  │Data Loader & │   │Exploratory Data Analysis     │  │                      │ │
+│  │  │Preprocessor  │   │(Optional EDA Component)      │  │                      │ │
+│  │  └──────┬───────┘   └──────────────────────────────┘  │                      │ │
+│  │         │                                             │                      │ │
+│  │  ┌──────▼───────┐   ┌──────────────────────────────┐  │                      │ │
+│  │  │Ground Truth  │   │                              │  │                      │ │
+│  │  │Loader        │   │   FILES & DATA STORES        │  │                      │ │
+│  │  └──────────────┘   │  - Image sequences           │  │                      │ │
+│  │                     │  - YAML calibration          │  │                      │ │
+│  │                     │  - Ground truth CSV          │  │                      │ │
+│  │                     │  - Output results (.txt/csv) │  │                      │ │
+│  │                     └──────────────────────────────┘  │                      │ │
+│  │                                                       ↑                       │ │
+│  └───────────────────────────────────────────────────────┼───────────────────────┘ │
+│                                                           │                         │
+│  ┌───────────────────────────────────────────────────────┼───────────────────────┐ │
+│  │       ALGORITHMIC PROCESSING LAYER (VO Pipeline)      │                      │ │
+│  │                                                       ↓                       │ │
+│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
+│  │  │  VO PIPELINE ORCHESTRATOR                                           │   │ │
+│  │  │  Coordinates frame-by-frame processing with reinitialization logic │   │ │
+│  │  └──────┬─────────────────────────────────────────────────────────────┘   │ │
+│  │         │                                                                   │ │
+│  │    ┌────┴──────────────────────────────────────────────────────────────┐   │ │
+│  │    │                                                                    │   │ │
+│  │ ┌──▼──────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │   │ │
+│  │ │   Feature   │→│ Feature      │→│   Feature    │→│ Triangulator │   │   │ │
+│  │ │   Detector  │ │ Filter       │ │   Matcher    │ │              │   │   │ │
+│  │ │ (ORB)       │ │ (Grid)       │ │ (Lowe's Test)│ │ (3D Points)  │   │   │ │
+│  │ └─────────────┘ └──────────────┘ └──────────────┘ └──────┬───────┘   │   │ │
+│  │                                                           │            │   │ │
+│  │ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  ┌────▼───────┐   │   │ │
+│  │ │   Tracker    │→│ Pose         │→│ Trajectory   │→│ Aligner     │   │   │ │
+│  │ │ (Opt.Flow)   │ │ Estimator    │ │ Accumulator  │ │ (Umeyama)   │   │   │ │
+│  │ │ (LK)         │ │ (PnP RANSAC) │ │              │ │             │   │   │ │
+│  │ └──────────────┘ └──────────────┘ └──────────────┘ └─────┬───────┘   │   │ │
+│  │                                                           │            │   │ │
+│  │                                               ┌───────────▼──────────┐ │   │ │
+│  │                                               │  Metrics Calculator  │ │   │ │
+│  │                                               │  (RMSE, accuracy)    │ │   │ │
+│  │                                               └──────────────────────┘ │   │ │
+│  │                                                                        │   │ │
+│  │  Optional Comparison Component (if COMPARE_SPARSE_DENSE enabled):    │   │ │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │ │
+│  │  │  Sparse vs Dense Comparator                                     │ │   │ │
+│  │  │  (Runs both pipelines and generates comparison report)          │ │   │ │
+│  │  └─────────────────────────────────────────────────────────────────┘ │   │ │
+│  │                                                                        │   │ │
+│  └────────────────────────────────────────────────────────────────────────┘   │ │
+│                                                                                 │ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+            </ascii_diagram>
+        </diagram>
+
+        <!-- Data Flow Diagram -->
+        <diagram id="data_flow">
+            <name>High-Level Data Flow</name>
+            <description>Shows major data transformations through the system</description>
+            <ascii_diagram>
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │              DATA FLOW: INPUT → PROCESSING → OUTPUT                      │
+    └─────────────────────────────────────────────────────────────────────────┘
+
+    INPUT DATA                    PROCESSING                    OUTPUT DATA
+    ══════════════════════════════════════════════════════════════════════════
+
+    Stereo Images          Feature Detection          Dense Features
+    ├─ Left camera    ───────────────────────>       └─ 1200+ keypoints
+    └─ Right camera        │                            ├─ descriptors
+                           │                            └─ locations
+         Camera Params      Feature Filtering ──────>   Sparse Features
+         ├─ Intrinsics     (Grid Bucketing)             └─ 450 keypoints
+         ├─ Distortion  
+         └─ T_BS            Feature Matching ──────>   Matches
+                           (Ratio Test)                └─ correspondences
+                                                       └─ quality metrics
+                            Triangulation ────────>   3D Points
+                                                      ├─ XYZ coordinates
+                                                      ├─ depth range
+                                                      └─ validity masks
+
+                            Optical Flow ──────────>  Tracked Points
+                            (LK Pyramid)              ├─ 2D positions
+                                                      └─ tracking status
+
+                            PnP Estimation ────────>  Camera Pose
+                            (RANSAC)                 ├─ Rotation (R)
+                                                      ├─ Translation (t)
+                                                      └─ Position
+
+                            Trajectory ────────────>  VO Trajectory
+                            Accumulation             └─ sequence of poses
+
+         Ground Truth ───→  Alignment ─────────────>  Aligned VO Traj
+         (optional)        (Umeyama)                 ├─ scale param
+                                                      ├─ rotation param
+                                                      ├─ translation param
+                                                      └─ aligned positions
+
+                            Metrics ──────────────>   Accuracy Metrics
+                            Calculation              ├─ RMSE
+                                                      ├─ max error
+                                                      ├─ mean error
+                                                      └─ efficiency stats
+
+                            Visualization ────────>   Result Plots
+                                                      ├─ 3D trajectory
+                                                      ├─ 2D projection
+                                                      ├─ point cloud
+                                                      └─ annotations
+
+                            File Export ───────────>  Output Files
+                                                      ├─ .txt/.csv/.json
+                                                      └─ PNG images
+            </ascii_diagram>
+        </diagram>
+
+        <!-- Component Dependency Graph -->
+        <diagram id="component_deps">
+            <name>Component Dependencies</name>
+            <description>Shows which components depend on which</description>
+            <ascii_diagram>
+    ┌────────────────────────────────────────────────────────────────┐
+    │           COMPONENT DEPENDENCY HIERARCHY                        │
+    └────────────────────────────────────────────────────────────────┘
+
+    Data Sources (No dependencies):
+    ├─ Data Loader & Preprocessor
+    ├─ Ground Truth Loader
+    ├─ EDA (optional, depends on Data Loader)
+    └─ Configuration Manager
+
+    Feature Processing Pipeline:
+    ├─ Feature Detector
+    │  └─ depends on: Data Loader
+    │
+    ├─ Feature Filter (Sparse mode only)
+    │  └─ depends on: Feature Detector
+    │
+    ├─ Feature Matcher
+    │  └─ depends on: Feature Detector OR Feature Filter
+    │
+    └─ Triangulator
+       └─ depends on: Feature Matcher
+
+    Pose Estimation Pipeline:
+    ├─ Tracker (Optical Flow)
+    │  └─ depends on: Triangulator
+    │
+    ├─ Pose Estimator (PnP)
+    │  └─ depends on: Tracker
+    │     Reinitialization loop back to: Feature Detector
+    │
+    └─ Trajectory Accumulator
+       └─ depends on: Pose Estimator, Ground Truth Loader
+
+    Post-Processing:
+    ├─ Aligner (Umeyama)
+    │  └─ depends on: Trajectory Accumulator, Ground Truth Loader
+    │
+    ├─ Metrics Calculator
+    │  └─ depends on: Aligner
+    │
+    ├─ Visualizer
+    │  └─ depends on: Aligner, Metrics Calculator, Trajectory Accumulator
+    │
+    └─ File Exporter
+       └─ depends on: Aligner, Metrics Calculator
+
+    Comparator (Optional):
+    └─ depends on: All algorithmic components (runs complete pipelines)
+
+    UI Components:
+    ├─ GUI
+    │  └─ depends on: Config Manager, Visualizer, File Exporter
+    │
+    └─ Config Manager
+       └─ independent (feeds config to all other components)
+            </ascii_diagram>
+        </diagram>
+    </architecture_diagrams>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 5: ВІДПОВІДНІСТЬ ВИМОГАМ (REQUIREMENTS MAPPING) -->
+    <!-- ============================================================================ -->
+    <requirements_compliance>
+        <section name="Functional Requirements Mapping">
+            <requirement id="f1">
+                <description>Load and preprocess stereo images</description>
+                <responsible_component>Data Loader & Preprocessor</responsible_component>
+                <supporting_components>EDA (validation)</supporting_components>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f2">
+                <description>Detect ORB features</description>
+                <responsible_component>Feature Detector</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f3">
+                <description>Grid filter keypoints (sparse mode)</description>
+                <responsible_component>Feature Filter (Grid Bucketing)</responsible_component>
+                <compliance>✓ FULLY SUPPORTED (conditional on mode)</compliance>
+            </requirement>
+            <requirement id="f4">
+                <description>Support both sparse and dense modes</description>
+                <responsible_component>VO Pipeline Orchestrator (Feature Filter optional)</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f5">
+                <description>Triangulation of 3D points</description>
+                <responsible_component>Triangulator</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f6">
+                <description>Optical flow tracking (Lucas-Kanade)</description>
+                <responsible_component>Tracker</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f7">
+                <description>PnP pose estimation</description>
+                <responsible_component>Pose Estimator</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f8">
+                <description>Trajectory accumulation</description>
+                <responsible_component>Trajectory Accumulator</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f9">
+                <description>Alignment with Umeyama algorithm</description>
+                <responsible_component>Aligner</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f10">
+                <description>Compute accuracy metrics (RMSE)</description>
+                <responsible_component>Metrics Calculator</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f11">
+                <description>Save processing results</description>
+                <responsible_component>File Exporter</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f12">
+                <description>Visualize results</description>
+                <responsible_component>Visualizer</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f13">
+                <description>Feature comparison analysis (Sparse vs Dense)</description>
+                <responsible_component>Comparator</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+            <requirement id="f14">
+                <description>Parameter configuration via UI</description>
+                <responsible_component>GUI, Configuration Manager</responsible_component>
+                <compliance>✓ FULLY SUPPORTED</compliance>
+            </requirement>
+        </section>
+
+        <section name="Non-Functional Requirements Mapping">
+            <requirement id="nfr01">
+                <description>Limited computational resources - optimize for efficiency</description>
+                <design_decisions>
+                    - Feature Filter (grid bucketing) reduces feature count by 62.5%
+                    - Optical flow uses pyramid implementation (LK pyramid)
+                    - RANSAC limits iterations for PnP
+                    - Selective visualization updates (every PLOT_EVERY frames)
+                </design_decisions>
+                <responsible_components>Feature Filter, Tracker, Pose Estimator, Visualizer</responsible_components>
+                <compliance>✓ ADDRESSED</compliance>
+            </requirement>
+            <requirement id="nfr02">
+                <description>Reproducibility of experiments</description>
+                <design_decisions>
+                    - Configuration stored with results
+                    - Deterministic RANSAC seed management
+                    - EDA documents dataset characteristics
+                    - File export includes metadata
+                </design_decisions>
+                <responsible_components>Config Manager, EDA, File Exporter</responsible_components>
+                <compliance>✓ ADDRESSED</compliance>
+            </requirement>
+            <requirement id="nfr03">
+                <description>Result visualization and export in multiple formats</description>
+                <design_decisions>
+                    - Support .txt, .csv, .json export formats
+                    - Real-time matplotlib visualization
+                    - PNG file generation for plots
+                    - Multiple view options (3D, 2D, point cloud)
+                </design_decisions>
+                <responsible_components>Visualizer, File Exporter</responsible_components>
+                <compliance>✓ ADDRESSED</compliance>
+            </requirement>
+            <requirement id="nfr04">
+                <description>Robust error handling and recovery</description>
+                <design_decisions>
+                    - Parameter validation before execution
+                    - Graceful handling of low tracking count (reinitialization)
+                    - Optional GT dependency (system works without GT)
+                    - Fallback mechanisms at each pipeline stage
+                </design_decisions>
+                <responsible_components>Config Manager, VO Pipeline, Pose Estimator</responsible_components>
+                <compliance>✓ ADDRESSED</compliance>
+            </requirement>
+        </section>
+
+        <section name="Scalability & Future Development">
+            <aspect name="Alternative Feature Extractors">
+                <current>ORB features with Lowe's ratio test</current>
+                <flexibility>Feature Detector is isolated component → can be replaced with SIFT, SURF, etc.</flexibility>
+            </aspect>
+            <aspect name="Alternative Matching Algorithms">
+                <current>BFMatcher with Hamming distance and epipolar filter</current>
+                <flexibility>Feature Matcher is isolated → can implement optical flow matching or graph-based matching</flexibility>
+            </aspect>
+            <aspect name="Alternative Pose Estimation">
+                <current>PnP RANSAC</current>
+                <flexibility>Pose Estimator component can be swapped for EKF, bundle adjustment, or BA-based methods</flexibility>
+            </aspect>
+            <aspect name="Parallel Processing">
+                <current>Sequential frame processing</current>
+                <flexibility>Pipeline architecture allows frame parallelization in future</flexibility>
+            </aspect>
+            <aspect name="Real-Time Processing">
+                <current>Batch processing on video files</current>
+                <flexibility>Data Loader can be adapted to receive live camera stream</flexibility>
+            </aspect>
+            <aspect name="Multi-View Geometry">
+                <current>Stereo pair only</current>
+                <flexibility>Triangulator can be extended to multi-view triangulation</flexibility>
+            </aspect>
+        </section>
+    </requirements_compliance>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 6: РЕЗЮМЕ АРХІТЕКТУРИ (ARCHITECTURE SUMMARY) -->
+    <!-- ============================================================================ -->
+    <architecture_summary>
+        <key_principles>
+            <principle>
+                <name>Separation of Concerns</name>
+                <description>Each component has well-defined responsibility; minimal interdependencies</description>
+                <benefit>Easy to understand, test, and modify individual components</benefit>
+            </principle>
+            <principle>
+                <name>Pipeline Composition</name>
+                <description>VO pipeline is built by composing simpler processing components</description>
+                <benefit>Flexible execution; can skip/replace stages; supports sparse/dense branching</benefit>
+            </principle>
+            <principle>
+                <name>Layered Architecture</name>
+                <description>Three layers: Data Acquisition, Algorithmic Processing, Presentation</description>
+                <benefit>Clear separation between data, logic, and UI; easier evolution</benefit>
+            </principle>
+            <principle>
+                <name>Fail-Safe Reinitialization</name>
+                <description>When tracking fails, system reinitializes rather than crashing</description>
+                <benefit>Robust processing of challenging sequences; automatic recovery</benefit>
+            </principle>
+            <principle>
+                <name>Mode Flexibility</name>
+                <description>Supports parallel sparse and dense pipelines with comparison</description>
+                <benefit>Enables research hypothesis validation (sparse vs dense comparison)</benefit>
+            </principle>
+        </key_principles>
+
+        <architectural_strengths>
+            - Clear component boundaries and interfaces
+            - Supports both sparse and dense feature processing modes
+            - Graceful degradation when tracking fails (reinitialization)
+            - Comprehensive error handling and validation
+            - Modular design allows component replacement/upgrade
+            - Supports comparison analysis (key research objective)
+            - Optional GT dependency (flexible validation)
+            - Real-time visualization and post-processing export
+        </architectural_strengths>
+
+        <architectural_limitations>
+            - Sequential frame processing (not parallelized)
+            - Single-user, single-dataset focus (no multi-session support)
+            - No persistent data storage (results kept in memory/files only)
+            - Stereo pair only (no multi-camera extension yet)
+            - No network communication
+        </architectural_limitations>
+
+        <conclusion>
+            Запропонована концептуальна архітектура системи візуальної одометрії забезпечує:
+            
+            1. ВІДПОВІДНІСТЬ ФУНКЦІОНАЛЬНИМ ВИМОГАМ: Усі 14 функціональних вимог 
+               повністю підтримуються відповідними компонентами з чіткою відповідальністю.
+            
+            2. ВІДПОВІДНІСТЬ НЕФУНКЦІОНАЛЬНИМ ВИМОГАМ: Оптимізація для обмежених ресурсів, 
+               відтворюваність експериментів, візуалізація результатів та обробка помилок 
+               вирішуються на архітектурному рівні.
+            
+            3. МОЖЛИВІСТЬ РОЗВИТКУ: Модульний дизайн дозволяє легко замінювати компоненти 
+               (детектори ознак, алгоритми матчінгу, методи оцінки пози) без зміни загальної 
+               структури. Архітектура підтримує розширення для паралельної обробки, 
+               реального часу та багаторозмірної геометрії.
+            
+            4. РОЗУМІННЯ СИСТЕМИ: Логічна структура компонентів відповідає етапам технології 
+               функціонування, що забезпечує прозорість та легкість розуміння системи.
+        </conclusion>
+    </architecture_summary>
+
+</architecture>

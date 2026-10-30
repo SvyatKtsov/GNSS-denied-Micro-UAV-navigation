@@ -1,0 +1,89 @@
+<mxfile host="app.diagrams.net" modified="2024-02-12T10:00:00.000Z" agent="5.0 (Linux) AppleWebKit/537.36" etag="def456" version="21.6.5" type="device">
+<diagram id="diagram1" name="Дерево функцій">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+<root>
+<mxCell id="0"/>
+<mxCell id="1" parent="0"/>
+<!-- Головна функція -->
+<mxCell id="main" value="Візуальна одометрія БПЛА (FR01)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Визначення положення камери та траєкторії руху БПЛА на основі відеопослідовності з використанням dense/sparse ознак.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Стереозображення, калібрувальні файли.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Траєкторія, RMSE, порівняльний аналіз.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Оцінка позиції та навігації." style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" vertex="1" parent="1">
+<mxGeometry x="400" y="20" width="300" height="80" as="geometry"/>
+</mxCell>
+<!-- Рівень 2: Основні функції -->
+<mxCell id="load" value="Зчитування та калібрування (FR02)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Завантаження стереопар та параметрів камер.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Датасет зображень, YAML файли.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Підготовлені дані.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Основа для обробки." style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;" vertex="1" parent="1">
+<mxGeometry x="150" y="140" width="200" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="features" value="Обробка ознак (dense→sparse) (FR03)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Виділення та фільтрація ключових точок з dense до sparse.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Зображення.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Розріджені ознаки.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Зменшення складності, підвищення стабільності." style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;" vertex="1" parent="1">
+<mxGeometry x="400" y="140" width="200" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="triang_pose" value="Тріангуляція та оцінка позиції (FR04)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Відновлення 3D точок та позиції камери за PnP.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Ознаки, параметри.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; 3D точки, позиція.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Тривимірна траєкторія." style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;" vertex="1" parent="1">
+<mxGeometry x="150" y="240" width="200" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="trajectory" value="Відновлення траєкторії (FR05)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Збирання траєкторії руху з позицій.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Послідовність позицій.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Траєкторія.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Навігаційна інформація." style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;" vertex="1" parent="1">
+<mxGeometry x="400" y="240" width="200" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="analysis" value="Порівняльний аналіз та візуалізація (FR06)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Аналіз точності dense/sparse, візуалізація, збереження.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Траєкторії, еталон.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; RMSE, графіки, файли.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Оцінка ефективності та точності." style="rounded=1;whiteSpace=wrap;html=1;fontSize=10;" vertex="1" parent="1">
+<mxGeometry x="275" y="340" width="250" height="60" as="geometry"/>
+</mxCell>
+<!-- Рівень 3: Підфункції -->
+<mxCell id="dense_extract" value="Виділення dense ознак (FR07)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Виявлення всіх можливих точок на зображенні.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Зображення.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Dense ознаки.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; База для фільтрації." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="450" y="440" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="sparse_filter" value="Фільтрація до sparse (FR08)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Відбір ключових точок за просторовою фільтрацією.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Dense ознаки.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Sparse ознаки.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Оптимізація для швидкості." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="450" y="500" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="triangulate" value="Тріангуляція 3D точок (FR09)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Обчислення просторових координат.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Збіги ознак.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; 3D точки.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Карта глибини." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="150" y="440" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="pnp_est" value="Оцінка позиції PnP (FR10)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Розрахунок позиції камери.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; 3D-2D відповідності.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Позиція.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Оновлення одометрії." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="150" y="500" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="rmse_calc" value="Розрахунок RMSE (FR11)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Обчислення похибки траєкторії.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Оцінена та еталонна траєкторії.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; RMSE.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Міра точності." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="275" y="440" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="visualize" value="Візуалізація траєкторій (FR12)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Графічне відображення результатів.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Траєкторії.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Графіки.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Візуальний аналіз." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="275" y="500" width="150" height="50" as="geometry"/>
+</mxCell>
+<mxCell id="save_results" value="Збереження результатів (FR13)&lt;br&gt;&lt;b&gt;Призначення:&lt;/b&gt; Експорт даних у файли.&lt;br&gt;&lt;b&gt;Вхід:&lt;/b&gt; Результати.&lt;br&gt;&lt;b&gt;Вихід:&lt;/b&gt; Файли.&lt;br&gt;&lt;b&gt;Результат:&lt;/b&gt; Збережені дані." style="rounded=1;whiteSpace=wrap;html=1;fontSize=9;" vertex="1" parent="1">
+<mxGeometry x="275" y="560" width="150" height="50" as="geometry"/>
+</mxCell>
+<!-- Стрілки для зв'язків -->
+<mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="main" target="load">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="main" target="features">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="main" target="triang_pose">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="main" target="trajectory">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="main" target="analysis">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="features" target="dense_extract">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="features" target="sparse_filter">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="triang_pose" target="triangulate">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="triang_pose" target="pnp_est">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="analysis" target="rmse_calc">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="analysis" target="visualize">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+<mxCell id="e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="analysis" target="save_results">
+<mxGeometry relative="1" as="geometry"/>
+</mxCell>
+</root>
+</mxGraphModel>
+</diagram>
+</mxfile>

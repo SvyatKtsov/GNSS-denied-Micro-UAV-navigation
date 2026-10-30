@@ -1,0 +1,76 @@
+{
+  "sequence": "V2_01_easy",
+  "detector": "gftt",
+  "frames": 2240,
+  "keyframes": 344,
+  "lost_frames": 96,
+  "fps": 61.96415176552775,
+  "row_offset_px": 1.727996826171875,
+  "ate_se3": {
+    "rmse": 0.19235524934344272,
+    "mean": 0.1634767960592403,
+    "median": 0.1382120106269033,
+    "max": 0.3905350709151738,
+    "scale": 1.0
+  },
+  "ate_sim3": {
+    "rmse": 0.1779861422043832,
+    "mean": 0.1514838139347581,
+    "median": 0.1286343991467753,
+    "max": 0.35678561056490926,
+    "scale": 1.0328674565746856
+  },
+  "anchored": {
+    "final_err": 0.6820736822309424,
+    "rmse": 0.384877913024546,
+    "length": 36.43714900404417,
+    "drift_pct": 1.8719183604492187
+  },
+  "rpe_1s": {
+    "trans_rmse": 0.017648071482346518,
+    "rot_rmse_deg": 0.5484837570132766
+  },
+  "depth_vs_laser": {
+    "n": 28539,
+    "median": 0.050535159929314816,
+    "p90": 0.15526527824753564,
+    "by_depth_median": {
+      "0-2m": 0.03800380338486536,
+      "2-4m": 0.059949639010246386,
+      "4-6m": 0.09054590986118652,
+      "6-10m": 0.27608407820359326
+    }
+  },
+  "config": {
+    "dataset_path": "data/euroc/V2_01_easy/mav0",
+    "start_frame": 0,
+    "max_frames": 0,
+    "detector": "gftt",
+    "n_features": 2000,
+    "grid": [
+      8,
+      12
+    ],
+    "per_cell": 12,
+    "ratio": 0.8,
+    "subpixel_refine": true,
+    "self_calibrate": true,
+    "max_row_diff": 1.5,
+    "min_disparity": 2.0,
+    "min_depth": 0.15,
+    "max_depth": 10.0,
+    "lk_win": 21,
+    "lk_levels": 3,
+    "fb_thresh": 1.0,
+    "pnp_reproj_err": 2.0,
+    "pnp_iters": 200,
+    "pnp_conf": 0.999,
+    "min_inliers": 30,
+    "max_step": 0.5,
+    "kf_min_tracked": 150,
+    "kf_max_age": 20,
+    "out_dir": "results",
+    "plot_live": false,
+    "plot_every": 5
+  }
+}

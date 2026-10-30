@@ -1,0 +1,1504 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Інфологічна модель системи візуальної одометрії БПЛА
+    Information Model of UAV Visual Odometry System
+    
+    Описує:
+    - Структуру вхідних даних (стереозображення, параметри камер, еталонні траєкторії)
+    - Проміжні представлення даних (щільні та розріджені ознаки)
+    - Вихідні дані (траєкторії, метрики, графіки)
+    - Потоки трансформації даних між модулями
+-->
+<infological_model>
+    <metadata>
+        <system_name>Visual Odometry System for UAV</system_name>
+        <version>1.0</version>
+        <date>2026-02-13</date>
+        <description>Infological data model for stereo visual odometry without database</description>
+    </metadata>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 1: ВХІДНІ ДАНІ (INPUT DATA) -->
+    <!-- ============================================================================ -->
+    <input_data>
+        <entity id="stereo_images" type="image_sequence">
+            <name>Стереопара зображень</name>
+            <description>Послідовність пар зображень з лівої та правої камер</description>
+            <source>UAV stereo camera (physical sensor)</source>
+            <format>PNG/JPG files</format>
+            <attributes>
+                <attribute>
+                    <name>left_image_path</name>
+                    <type>string</type>
+                    <description>Шлях до файлу лівої камери</description>
+                    <example>V2_01_easy/mav0/cam0/data/1413393290855760384.png</example>
+                </attribute>
+                <attribute>
+                    <name>right_image_path</name>
+                    <type>string</type>
+                    <description>Шлях до файлу правої камери</description>
+                    <example>V2_01_easy/mav0/cam1/data/1413393290855760384.png</example>
+                </attribute>
+                <attribute>
+                    <name>timestamp</name>
+                    <type>int64</type>
+                    <description>Час захоплення кадру (наносекунди)</description>
+                    <example>1413393290855760384</example>
+                </attribute>
+                <attribute>
+                    <name>image_shape</name>
+                    <type>tuple (H, W, C)</type>
+                    <description>Розмір зображення та кількість каналів</description>
+                    <example>(480, 752, 3)</example>
+                </attribute>
+                <attribute>
+                    <name>frame_index</name>
+                    <type>int</type>
+                    <description>Індекс кадру у послідовності</description>
+                    <example>0, 1, 2, ..., N</example>
+                </attribute>
+            </attributes>
+            <usage>
+                <function>F1: Load stereo images</function>
+                <function>F2: Detect features (ORB)</function>
+                <function>F5: Optical flow tracking</function>
+            </usage>
+            <stage>Stage 1: Input Data Reception</stage>
+        </entity>
+
+        <entity id="camera_parameters" type="calibration_data">
+            <name>Параметри камер</name>
+            <description>Внутрішні та зовнішні параметри стереокамери для коригування спотворень</description>
+            <source>Camera calibration files (YAML format)</source>
+            <format>YAML</format>
+            <attributes>
+                <attribute>
+                    <name>intrinsics</name>
+                    <type>list [fx, fy, cx, cy]</type>
+                    <description>Внутрішні параметри камери (фокусна відстань та центр проекції)</description>
+                    <example>[458.654, 457.296, 367.215, 248.375]</example>
+                </attribute>
+                <attribute>
+                    <name>distortion_coefficients</name>
+                    <type>array</type>
+                    <description>Коефіцієнти для моделі спотворень (радіальні та тангенціальні)</description>
+                </attribute>
+                <attribute>
+                    <name>T_BS</name>
+                    <type>4x4 matrix</type>
+                    <description>Трансформація від корпусу БПЛА до центру камери</description>
+                </attribute>
+                <attribute>
+                    <name>camera_id</name>
+                    <type>string</type>
+                    <description>Ідентифікатор камери (cam0, cam1)</description>
+                    <example>cam0, cam1</example>
+                </attribute>
+                <attribute>
+                    <name>resolution</name>
+                    <type>tuple (H, W)</type>
+                    <description>Роздільна здатність камери</description>
+                    <example>(480, 752)</example>
+                </attribute>
+            </attributes>
+            <usage>
+                <function>F1: Calibration correction</function>
+                <function>F3: Image rectification</function>
+                <function>F6: Triangulation</function>
+                <function>F7: PnP pose estimation</function>
+            </usage>
+            <stage>Stage 1: Input Data Reception</stage>
+        </entity>
+
+        <entity id="ground_truth" type="reference_trajectory">
+            <name>Еталонна траєкторія (Ground Truth)</name>
+            <description>Опорна траєкторія руху БПЛА для перевірки точності алгоритму</description>
+            <source>state_groundtruth_estimate0/data.csv</source>
+            <format>CSV</format>
+            <attributes>
+                <attribute>
+                    <name>timestamp</name>
+                    <type>int64</type>
+                    <description>Час вимірювання</description>
+                </attribute>
+                <attribute>
+                    <name>position_x</name>
+                    <type>float</type>
+                    <description>X координата положення (метри)</description>
+                </attribute>
+                <attribute>
+                    <name>position_y</name>
+                    <type>float</type>
+                    <description>Y координата положення (метри)</description>
+                </attribute>
+                <attribute>
+                    <name>position_z</name>
+                    <type>float</type>
+                    <description>Z координата положення (метри)</description>
+                </attribute>
+            </attributes>
+            <usage>
+                <function>F9: Alignment with Umeyama</function>
+                <function>F10: RMSE computation</function>
+                <function>F13: Accuracy comparison</function>
+            </usage>
+            <stage>Stage 1: Input Data Reception</stage>
+        </entity>
+
+        <entity id="user_config" type="configuration_parameters">
+            <name>Параметри конфігурації</name>
+            <description>Користувацькі параметри для налаштування алгоритму</description>
+            <source>GUI input or Config class defaults</source>
+            <format>Python dict / YAML</format>
+            <attributes>
+                <attribute>
+                    <name>DATASET_PATH</name>
+                    <type>string</type>
+                    <description>Шлях до датасету</description>
+                    <example>V2_01_easy/mav0</example>
+                </attribute>
+                <attribute>
+                    <name>MAX_KP</name>
+                    <type>int</type>
+                    <description>Максимальна кількість ключових точок</description>
+                    <example>1200</example>
+                    <constraint>value &gt; 0</constraint>
+                </attribute>
+                <attribute>
+                    <name>ORB_FEATURES</name>
+                    <type>int</type>
+                    <description>Кількість ORB ознак для детекції</description>
+                    <example>2000</example>
+                    <constraint>value &gt; 0</constraint>
+                </attribute>
+                <attribute>
+                    <name>MIN_DEPTH, MAX_DEPTH</name>
+                    <type>float, float</type>
+                    <description>Діапазон глибини триангульованих точок</description>
+                    <example>0.05, 30</example>
+                    <constraint>MIN_DEPTH &gt; 0 AND MAX_DEPTH &gt; MIN_DEPTH</constraint>
+                </attribute>
+                <attribute>
+                    <name>MIN_MATCHES</name>
+                    <type>int</type>
+                    <description>Мінімальна кількість відповідностей для PnP</description>
+                    <example>14</example>
+                    <constraint>value &gt; 0</constraint>
+                </attribute>
+                <attribute>
+                    <name>PNP_REPROJ_ERR</name>
+                    <type>float</type>
+                    <description>Поріг репроекційної помилки для RANSAC</description>
+                    <example>10.0</example>
+                    <constraint>value &gt; 0</constraint>
+                </attribute>
+                <attribute>
+                    <name>PNP_CONF</name>
+                    <type>float</type>
+                    <description>Довірча ймовірність RANSAC</description>
+                    <example>0.99</example>
+                    <constraint>0 &lt; value ≤ 1</constraint>
+                </attribute>
+                <attribute>
+                    <name>FEATURE_TYPE</name>
+                    <type>string</type>
+                    <description>Тип ознак: Dense або Sparse</description>
+                    <example>Sparse, Dense</example>
+                </attribute>
+                <attribute>
+                    <name>SAVE_FORMAT</name>
+                    <type>string</type>
+                    <description>Формат збереження результатів</description>
+                    <example>.txt, .csv, .json</example>
+                </attribute>
+                <attribute>
+                    <name>SAVE_GRAPH</name>
+                    <type>boolean</type>
+                    <description>Чи зберігати графіки як PNG</description>
+                    <example>True, False</example>
+                </attribute>
+            </attributes>
+            <usage>
+                <function>F0: Parameter validation</function>
+                <function>All processing functions depend on config</function>
+            </usage>
+            <stage>Stage 1: Input Data Reception</stage>
+        </entity>
+    </input_data>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 2: ВНУТРІШНІ ДАНІ / ПРОМІЖНІ ПРЕДСТАВЛЕННЯ (INTERMEDIATE DATA) -->
+    <!-- ============================================================================ -->
+    <intermediate_data>
+        <entity id="preprocessed_images" type="image_representation">
+            <name>Попередньо обробані зображення</name>
+            <description>Зображення після спотворення та коригування</description>
+            <source>From: stereo_images + camera_parameters</source>
+            <format>OpenCV Mat (in-memory)</format>
+            <attributes>
+                <attribute>
+                    <name>gray_left</name>
+                    <type>ndarray uint8</type>
+                    <description>Ліве зображення в градаціях сірого (без спотворень)</description>
+                    <shape>(480, 752)</shape>
+                </attribute>
+                <attribute>
+                    <name>gray_right</name>
+                    <type>ndarray uint8</type>
+                    <description>Праве зображення в градаціях сірого (без спотворень)</description>
+                    <shape>(480, 752)</shape>
+                </attribute>
+                <attribute>
+                    <name>rectified_left</name>
+                    <type>ndarray uint8</type>
+                    <description>Випрямлене ліве зображення (опціонально)</description>
+                </attribute>
+                <attribute>
+                    <name>rectified_right</name>
+                    <type>ndarray uint8</type>
+                    <description>Випрямлене праве зображення (опціонально)</description>
+                </attribute>
+            </attributes>
+            <created_by>F1: Load and preprocess stereo images</created_by>
+            <used_by>F2: Feature detection</used_by>
+            <stage>Stage 2: Input Data Processing</stage>
+        </entity>
+
+        <entity id="keypoints_dense" type="feature_representation">
+            <name>Щільні ключові точки</name>
+            <description>Усі виявлені ключові точки без просторової фільтрації</description>
+            <source>From: preprocessed_images via ORB detector</source>
+            <format>List of cv2.KeyPoint objects</format>
+            <attributes>
+                <attribute>
+                    <name>keypoint</name>
+                    <type>cv2.KeyPoint</type>
+                    <description>Ключова точка з координатами та дескриптором</description>
+                    <sub_attributes>
+                        <sub>pt: (float, float) - координати в зображенні</sub>
+                        <sub>size: float - розмір ознаки</sub>
+                        <sub>angle: float - орієнтація</sub>
+                        <sub>response: float - "сила" ознаки</sub>
+                    </sub_attributes>
+                </attribute>
+                <attribute>
+                    <name>descriptor</name>
+                    <type>ndarray uint8 [n_points, 32]</type>
+                    <description>ORB дескриптори для матчінгу</description>
+                </attribute>
+                <attribute>
+                    <name>camera_id</name>
+                    <type>string</type>
+                    <description>Ідентифікатор камери (cam0, cam1)</description>
+                </attribute>
+                <attribute>
+                    <name>frame_index</name>
+                    <type>int</type>
+                    <description>Індекс кадру</description>
+                </attribute>
+            </attributes>
+            <created_by>F2: Detect ORB features (dense)</created_by>
+            <used_by>F3: Sparse feature filtering OR F4: Dense matching</used_by>
+            <stage>Stage 2: Input Data Processing</stage>
+        </entity>
+
+        <entity id="keypoints_sparse" type="feature_representation">
+            <name>Розріджені ключові точки</name>
+            <description>Відфільтровані ключові точки за допомогою просторового розбиття (grid bucketing)</description>
+            <source>From: keypoints_dense via grid_filter_keypoints()</source>
+            <format>List of cv2.KeyPoint objects (reduced size)</format>
+            <attributes>
+                <attribute>
+                    <name>grid_cell_division</name>
+                    <type>tuple (30, 30)</type>
+                    <description>Розбиття зображення на клітинки сітки</description>
+                </attribute>
+                <attribute>
+                    <name>k_per_cell</name>
+                    <type>int</type>
+                    <description>Максимальна кількість точок на клітинку</description>
+                    <example>5</example>
+                </attribute>
+                <attribute>
+                    <name>total_points</name>
+                    <type>int</type>
+                    <description>Загальна кількість точок після фільтрації</description>
+                    <example>~450 (замість 1200)</example>
+                </attribute>
+                <attribute>
+                    <name>descriptor</name>
+                    <type>ndarray uint8</type>
+                    <description>Переобчислені дескриптори для розріджених точок</description>
+                </attribute>
+            </attributes>
+            <created_by>F3: Grid filter keypoints</created_by>
+            <used_by>F4: Feature matching</used_by>
+            <stage>Stage 2: Input Data Processing</stage>
+        </entity>
+
+        <entity id="feature_matches" type="correspondence_data">
+            <name>Відповідності ознак</name>
+            <description>Відповідності між ключовими точками лівої та правої камери</description>
+            <source>From: keypoints_sparse + keypoints_dense via match_ratio()</source>
+            <format>List of cv2.DMatch objects</format>
+            <attributes>
+                <attribute>
+                    <name>query_idx</name>
+                    <type>int</type>
+                    <description>Індекс точки в лівій камері</description>
+                </attribute>
+                <attribute>
+                    <name>train_idx</name>
+                    <type>int</type>
+                    <description>Індекс точки в правій камері</description>
+                </attribute>
+                <attribute>
+                    <name>distance</name>
+                    <type>float</type>
+                    <description>Відстань Хеммінга між дескрипторами</description>
+                </attribute>
+                <attribute>
+                    <name>ratio_test_passed</name>
+                    <type>boolean</type>
+                    <description>Чи пройшла тест співвідношення Лоу (Lowe's ratio test)</description>
+                </attribute>
+            </attributes>
+            <created_by>F4: Feature matching (BFMatcher with ratio test)</created_by>
+            <used_by>F5: Triangulation</used_by>
+            <stage>Stage 2: Input Data Processing</stage>
+        </entity>
+
+        <entity id="triangulated_points" type="3d_points">
+            <name>Триангульовані 3D точки</name>
+            <description>Просторові координати ключових точок, відновлені з стереопари</description>
+            <source>From: feature_matches + camera_parameters via triangulatePoints()</source>
+            <format>ndarray float32 [N, 3]</format>
+            <attributes>
+                <attribute>
+                    <name>points_3d</name>
+                    <type>ndarray [N, 3]</type>
+                    <description>3D координати у координатній системі лівої камери</description>
+                    <example>[[x1, y1, z1], [x2, y2, z2], ...]</example>
+                </attribute>
+                <attribute>
+                    <name>points_2d_left</name>
+                    <type>ndarray [N, 2]</type>
+                    <description>2D координати в лівому зображенні</description>
+                </attribute>
+                <attribute>
+                    <name>depth_range</name>
+                    <type>tuple (min_z, max_z)</type>
+                    <description>Діапазон глибини триангульованих точок</description>
+                    <constraint>MIN_DEPTH &lt; z &lt; MAX_DEPTH</constraint>
+                </attribute>
+                <attribute>
+                    <name>frame_index</name>
+                    <type>int</type>
+                    <description>Індекс кадру стереопари</description>
+                </attribute>
+            </attributes>
+            <created_by>F5: Triangulation</created_by>
+            <used_by>F6: Optical flow tracking, F7: PnP pose estimation</used_by>
+            <stage>Stage 2: Input Data Processing</stage>
+        </entity>
+
+        <entity id="tracked_points" type="correspondence_data">
+            <name>Відслідковані ключові точки</name>
+            <description>Результати оптичного потоку - відповідності між кадрами</description>
+            <source>From: triangulated_points via cv2.calcOpticalFlowPyrLK()</source>
+            <format>ndarray [N, 2] (2D) and [N, 3] (3D)</format>
+            <attributes>
+                <attribute>
+                    <name>points_2d_current</name>
+                    <type>ndarray [N, 2]</type>
+                    <description>2D координати трекованих точок у поточному кадрі</description>
+                </attribute>
+                <attribute>
+                    <name>points_3d_current</name>
+                    <type>ndarray [N, 3]</type>
+                    <description>3D координати трекованих точок (з попереднього кадру)</description>
+                </attribute>
+                <attribute>
+                    <name>tracking_status</name>
+                    <type>ndarray bool [N]</type>
+                    <description>Статус трекування для кожної точки</description>
+                </attribute>
+                <attribute>
+                    <name>tracked_count</name>
+                    <type>int</type>
+                    <description>Кількість успішно трекованих точок</description>
+                </attribute>
+            </attributes>
+            <created_by>F6: Optical flow tracking (Lucas-Kanade)</created_by>
+            <used_by>F7: PnP pose estimation, F8: Reinitialization check</used_by>
+            <stage>Stage 3: UAV Position and Trajectory Estimation</stage>
+        </entity>
+
+        <entity id="camera_pose_frame" type="pose_data">
+            <name>Поза камери для окремого кадру</name>
+            <description>Положення та орієнтація камери, обчислена з PnP для одного кадру</description>
+            <source>From: tracked_points via cv2.solvePnPRansac()</source>
+            <format>4x4 transformation matrix + position vector</format>
+            <attributes>
+                <attribute>
+                    <name>rotation_matrix</name>
+                    <type>ndarray [3, 3]</type>
+                    <description>Матриця ротації R (від Rodrigues вектора)</description>
+                </attribute>
+                <attribute>
+                    <name>translation_vector</name>
+                    <type>ndarray [3]</type>
+                    <description>Вектор трансляції t</description>
+                </attribute>
+                <attribute>
+                    <name>pose_matrix</name>
+                    <type>ndarray [4, 4]</type>
+                    <description>Матриця трансформації [R | t; 0 0 0 1]</description>
+                </attribute>
+                <attribute>
+                    <name>camera_position</name>
+                    <type>ndarray [3]</type>
+                    <description>Позиція камери у глобальній координатній системі</description>
+                </attribute>
+                <attribute>
+                    <name>body_position</name>
+                    <type>ndarray [3]</type>
+                    <description>Позиція у координатній системі корпусу БПЛА</description>
+                </attribute>
+                <attribute>
+                    <name>inliers_count</name>
+                    <type>int</type>
+                    <description>Кількість інлаєрів у RANSAC</description>
+                </attribute>
+                <attribute>
+                    <name>frame_index</name>
+                    <type>int</type>
+                    <description>Індекс кадру</description>
+                </attribute>
+            </attributes>
+            <created_by>F7: PnP pose estimation</created_by>
+            <used_by>F8: Trajectory accumulation, F9: Alignment</used_by>
+            <stage>Stage 3: UAV Position and Trajectory Estimation</stage>
+        </entity>
+
+        <entity id="trajectory_unaligned" type="trajectory">
+            <name>НеAlignment траєкторія ВО</name>
+            <description>Послідовність позицій камери без попередньої трансформації</description>
+            <source>Accumulated from: camera_pose_frame</source>
+            <format>List of 3D points, ndarray [M, 3]</format>
+            <attributes>
+                <attribute>
+                    <name>positions</name>
+                    <type>ndarray [M, 3]</type>
+                    <description>Послідовність позицій (x, y, z)</description>
+                    <example>vo_list (Python)</example>
+                </attribute>
+                <attribute>
+                    <name>frame_count</name>
+                    <type>int</type>
+                    <description>Кількість кадрів у траєкторії</description>
+                </attribute>
+                <attribute>
+                    <name>origin_frame</name>
+                    <type>int</type>
+                    <description>Індекс кадру, з якого розпочата траєкторія</description>
+                </attribute>
+                <attribute>
+                    <name>feature_type</name>
+                    <type>string</type>
+                    <description>Тип ознак, на основі яких побудована траєкторія</description>
+                    <example>Sparse, Dense</example>
+                </attribute>
+            </attributes>
+            <created_by>F8: Trajectory accumulation</created_by>
+            <used_by>F9: Umeyama alignment</used_by>
+            <stage>Stage 3: UAV Position and Trajectory Estimation</stage>
+        </entity>
+    </intermediate_data>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 3: ВИХІДНІ ДАНІ (OUTPUT DATA) -->
+    <!-- ============================================================================ -->
+    <output_data>
+        <entity id="trajectory_aligned" type="trajectory">
+            <name>Alignment траєкторія ВО</name>
+            <description>Траєкторія ВО, трансформована для узгодження з еталонною траєкторією</description>
+            <source>From: trajectory_unaligned via umeyama_align()</source>
+            <format>ndarray [M, 3]</format>
+            <attributes>
+                <attribute>
+                    <name>positions_aligned</name>
+                    <type>ndarray [M, 3]</type>
+                    <description>Alignment позиції камери</description>
+                </attribute>
+                <attribute>
+                    <name>scale_factor</name>
+                    <type>float</type>
+                    <description>Коефіцієнт масштабування (s) з Умейами</description>
+                    <example>0.95-1.05</example>
+                </attribute>
+                <attribute>
+                    <name>rotation_matrix</name>
+                    <type>ndarray [3, 3]</type>
+                    <description>Матриця ротації (R) з Умейами</description>
+                </attribute>
+                <attribute>
+                    <name>translation_vector</name>
+                    <type>ndarray [3]</type>
+                    <description>Вектор трансляції (t) з Умейами</description>
+                </attribute>
+            </attributes>
+            <created_by>F9: Alignment with Umeyama algorithm</created_by>
+            <used_by>F10: Accuracy metrics computation, F12: Visualization</used_by>
+            <stage>Stage 4: Results Display and Analysis</stage>
+        </entity>
+
+        <entity id="accuracy_metrics" type="quality_metrics">
+            <name>Метрики точності</name>
+            <description>Кількісна оцінка точності траєкторії ВО</description>
+            <source>From: trajectory_aligned + ground_truth</source>
+            <format>Dictionary of floats</format>
+            <attributes>
+                <attribute>
+                    <name>rmse</name>
+                    <type>float</type>
+                    <description>Root Mean Square Error (RMSE) між ВО та GT</description>
+                    <unit>meters</unit>
+                    <formula>sqrt(mean((aligned_vo - gt)^2))</formula>
+                    <example>0.15</example>
+                </attribute>
+                <attribute>
+                    <name>trajectory_length</name>
+                    <type>float</type>
+                    <description>Загальна довжина траєкторії</description>
+                    <unit>meters</unit>
+                </attribute>
+                <attribute>
+                    <name>max_error</name>
+                    <type>float</type>
+                    <description>Максимальна помилка позиції</description>
+                    <unit>meters</unit>
+                </attribute>
+                <attribute>
+                    <name>mean_error</name>
+                    <type>float</type>
+                    <description>Середня помилка позиції</description>
+                    <unit>meters</unit>
+                </attribute>
+                <attribute>
+                    <name>processing_time</name>
+                    <type>float</type>
+                    <description>Час обробки для всієї послідовності</description>
+                    <unit>seconds</unit>
+                </attribute>
+                <attribute>
+                    <name>computation_efficiency</name>
+                    <type>float</type>
+                    <description>Відношення FPS до точності (frames per second)</description>
+                    <example>frames_processed / processing_time</example>
+                </attribute>
+            </attributes>
+            <created_by>F10: Compute accuracy metrics</created_by>
+            <used_by>F13: Comparison report, F12: Visualization</used_by>
+            <stage>Stage 4: Results Display and Analysis</stage>
+        </entity>
+
+        <entity id="comparison_report" type="analysis_report">
+            <name>Звіт порівняння Dense vs Sparse</name>
+            <description>Порівняльний аналіз результатів для двох типів ознак</description>
+            <source>From: accuracy_metrics (dense) + accuracy_metrics (sparse)</source>
+            <format>Dictionary / Console output</format>
+            <attributes>
+                <attribute>
+                    <name>sparse_rmse</name>
+                    <type>float</type>
+                    <description>RMSE для розріджених ознак</description>
+                </attribute>
+                <attribute>
+                    <name>dense_rmse</name>
+                    <type>float</type>
+                    <description>RMSE для щільних ознак</description>
+                </attribute>
+                <attribute>
+                    <name>rmse_difference</name>
+                    <type>float</type>
+                    <description>Різниця в точності</description>
+                    <formula>|sparse_rmse - dense_rmse|</formula>
+                </attribute>
+                <attribute>
+                    <name>sparse_efficiency</name>
+                    <type>float</type>
+                    <description>Обчислювальна ефективність (FPS) для Sparse</description>
+                </attribute>
+                <attribute>
+                    <name>dense_efficiency</name>
+                    <type>float</type>
+                    <description>Обчислювальна ефективність (FPS) для Dense</description>
+                </attribute>
+                <attribute>
+                    <name>efficiency_ratio</name>
+                    <type>float</type>
+                    <description>Відношення ефективності Sparse/Dense</description>
+                </attribute>
+                <attribute>
+                    <name>conclusion</name>
+                    <type>string</type>
+                    <description>Висновок про переваги одного підходу над іншим</description>
+                </attribute>
+            </attributes>
+            <created_by>F13: Feature comparison analysis</created_by>
+            <used_by>F14: Save comparison results, F12: Visualization</used_by>
+            <stage>Stage 4: Results Display and Analysis</stage>
+        </entity>
+
+        <entity id="output_files" type="file_collection">
+            <name>Вихідні файли</name>
+            <description>Збережені файли з результатами обробки</description>
+            <source>From: trajectory_aligned, accuracy_metrics, visualization data</source>
+            <format>TXT, CSV, JSON, PNG</format>
+            <attributes>
+                <attribute>
+                    <name>vo_xyz_aligned.txt</name>
+                    <type>text file</type>
+                    <description>Alignment траєкторія ВО у форматі x,y,z (один рядок на кадр)</description>
+                    <example>
+0.000000,0.000000,0.000000
+0.123456,0.234567,0.345678
+...
+                    </example>
+                </attribute>
+                <attribute>
+                    <name>gt_xyz_list.txt</name>
+                    <type>text file</type>
+                    <description>Еталонна траєкторія у форматі x,y,z</description>
+                </attribute>
+                <attribute>
+                    <name>vo_xyz_list.txt</name>
+                    <type>text file</type>
+                    <description>НеAlignment траєкторія ВО (для довідки)</description>
+                </attribute>
+                <attribute>
+                    <name>trajectory_data.json</name>
+                    <type>JSON file</type>
+                    <description>Повні дані траєкторії у JSON форматі</description>
+                    <structure>
+{
+  "vo_aligned": [[x1,y1,z1], [x2,y2,z2], ...],
+  "gt": [[x1,y1,z1], ...],
+  "rmse": 0.15,
+  "scale": 0.98,
+  "rotation": [[...], ...],
+  "translation": [tx, ty, tz]
+}
+                    </structure>
+                </attribute>
+                <attribute>
+                    <name>trajectory_3d.png</name>
+                    <type>PNG image</type>
+                    <description>3D графік траєкторії (якщо SAVE_GRAPH=True)</description>
+                </attribute>
+                <attribute>
+                    <name>comparison_sparse_dense.png</name>
+                    <type>PNG image</type>
+                    <description>Порівняльна візуалізація (4 графіки)</description>
+                </attribute>
+            </attributes>
+            <created_by>F11: Save processing results</created_by>
+            <consumed_by>User analysis, external tools</consumed_by>
+            <stage>Stage 4: Results Display and Analysis</stage>
+        </entity>
+
+        <entity id="visualization_data" type="display_data">
+            <name>Дані для візуалізації</name>
+            <description>Дані для відображення у користувацькому інтерфейсі</description>
+            <source>From: trajectory_aligned, tracked_points, accuracy_metrics</source>
+            <format>Matplotlib figures (in-memory)</format>
+            <attributes>
+                <attribute>
+                    <name>trajectory_3d_plot</name>
+                    <type>matplotlib Axes3D</type>
+                    <description>3D графік траєкторій ВО та GT</description>
+                </attribute>
+                <attribute>
+                    <name>trajectory_2d_plot</name>
+                    <type>matplotlib Axes</type>
+                    <description>2D графік траєкторії (X-Z проекція)</description>
+                </attribute>
+                <attribute>
+                    <name>feature_image</name>
+                    <type>OpenCV Mat / ndarray</type>
+                    <description>Зображення з позначеними трекованими точками та відстанями</description>
+                </attribute>
+                <attribute>
+                    <name>depth_map_visualization</name>
+                    <type>matplotlib scatter plot</type>
+                    <description>Хмара точок 3D ознак, розфарбована за глибиною</description>
+                </attribute>
+            </attributes>
+            <created_by>F12: Visualize results (real-time during processing)</created_by>
+            <consumed_by>User interaction in UI, Output PNG files</consumed_by>
+            <stage>Stage 4: Results Display and Analysis</stage>
+        </entity>
+    </output_data>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 4: ПОТОКИ ТРАНСФОРМАЦІЇ ДАНИХ (DATA TRANSFORMATION FLOWS) -->
+    <!-- ============================================================================ -->
+    <data_flows>
+        <flow id="flow_image_loading">
+            <name>Завантаження та підготовка зображень</name>
+            <source>stereo_images (files on disk)</source>
+            <sink>preprocessed_images (in-memory)</sink>
+            <transformation>
+                <step1>Read PNG/JPG files from disk</step1>
+                <step2>Convert BGR to Grayscale</step2>
+                <step3>Apply distortion correction (cv2.undistort)</step3>
+                <step4>Apply rectification (cv2.initUndistortRectifyMap)</step4>
+            </transformation>
+            <function>F1: Load and preprocess stereo images</function>
+            <volume>~2280 frame pairs × 480×752 × 3 channels ≈ 2.5 GB (raw)</volume>
+        </flow>
+
+        <flow id="flow_feature_detection">
+            <name>Детекція ознак</name>
+            <source>preprocessed_images</source>
+            <sink>keypoints_dense</sink>
+            <transformation>
+                <step1>Initialize ORB detector with ORB_FEATURES parameter</step1>
+                <step2>Detect keypoints in grayscale image</step2>
+                <step3>Sort by response strength (descending)</step3>
+                <step4>Keep top MAX_KP keypoints</step4>
+                <step5>Compute ORB descriptors</step5>
+            </transformation>
+            <function>F2: Detect ORB features</function>
+            <processing_complexity>O(H × W × log(ORB_FEATURES))</processing_complexity>
+        </flow>
+
+        <flow id="flow_feature_filtering">
+            <name>Просторова фільтрація ознак (Grid bucketing)</name>
+            <source>keypoints_dense</source>
+            <sink>keypoints_sparse</sink>
+            <transformation>
+                <step1>Divide image into 30×30 grid cells</step1>
+                <step2>Distribute keypoints to cells based on coordinates</step2>
+                <step3>For each cell: sort keypoints by response strength</step3>
+                <step4>Keep top k_per_cell (5) keypoints per cell</step4>
+                <step5>Concatenate keypoints from all cells</step5>
+                <step6>Recompute descriptors for selected keypoints</step6>
+            </transformation>
+            <function>F3: Grid filter keypoints (Sparse mode)</function>
+            <reduction_ratio>1200 → ~450 points (62.5% reduction)</reduction_ratio>
+        </flow>
+
+        <flow id="flow_feature_matching">
+            <name>Матчинг ознак між камерами</name>
+            <source>keypoints_dense OR keypoints_sparse (both cameras)</source>
+            <sink>feature_matches</sink>
+            <transformation>
+                <step1>Create BFMatcher with NORM_HAMMING distance</step1>
+                <step2>Find k=2 nearest neighbors for each descriptor</step2>
+                <step3>Apply Lowe's ratio test (threshold 0.85)</step3>
+                <step4>Filter matches: distance(m) &lt; 0.85 × distance(n)</step4>
+                <step5>Optional epipolar constraint filtering</step5>
+            </transformation>
+            <function>F4: Feature matching</function>
+            <match_quality>Ratio test filters out ~30-40% of initial matches</match_quality>
+        </flow>
+
+        <flow id="flow_triangulation">
+            <name>Триангуляція 3D точок</name>
+            <source>feature_matches + camera_parameters</source>
+            <sink>triangulated_points</sink>
+            <transformation>
+                <step1>Extract 2D coordinates for each match (left and right)</step1>
+                <step2>Apply cv2.triangulatePoints with projection matrices</step2>
+                <step3>Normalize homogeneous coordinates (4D → 3D)</step3>
+                <step4>Filter by depth range: MIN_DEPTH &lt; z &lt; MAX_DEPTH</step4>
+                <step5>Keep only valid 3D points</step5>
+            </transformation>
+            <function>F5: Triangulation</function>
+            <validity_rate>~70-80% of matches produce valid 3D points</validity_rate>
+        </flow>
+
+        <flow id="flow_optical_flow">
+            <name>Оптичний потік між кадрами</name>
+            <source>triangulated_points (frame t) + preprocessed_images (frame t+1)</source>
+            <sink>tracked_points</sink>
+            <transformation>
+                <step1>Project 3D points onto frame t</step1>
+                <step2>Apply Lucas-Kanade optical flow to frame t+1</step2>
+                <step3>Track 2D positions of 3D points</step3>
+                <step4>Filter by tracking status (good/bad tracks)</step4>
+                <step5>Retain 3D coordinates and new 2D positions</step5>
+            </transformation>
+            <function>F6: Optical flow tracking (Lucas-Kanade)</function>
+            <tracking_success_rate>~60-80% depending on motion magnitude</tracking_success_rate>
+        </flow>
+
+        <flow id="flow_pnp_estimation">
+            <name>Оцінка пози камери (PnP)</name>
+            <source>tracked_points</source>
+            <sink>camera_pose_frame</sink>
+            <transformation>
+                <step1>Extract 3D points and their 2D projections</step1>
+                <step2>Run PnP RANSAC (cv2.solvePnPRansac)</step2>
+                <step3>Extract rotation vector (Rodrigues) → rotation matrix</step3>
+                <step4>Get translation vector</step4>
+                <step5>Inverse to get camera center position</step5>
+                <step6>Transform to body frame using T_BS⁻¹</step6>
+            </transformation>
+            <function>F7: PnP pose estimation</function>
+            <ransac_parameters>
+                <threshold>PNP_REPROJ_ERR = 10.0 pixels</threshold>
+                <confidence>PNP_CONF = 0.99</confidence>
+            </ransac_parameters>
+        </flow>
+
+        <flow id="flow_trajectory_accumulation">
+            <name>Накопичення траєкторії</name>
+            <source>camera_pose_frame (sequence)</source>
+            <sink>trajectory_unaligned</sink>
+            <transformation>
+                <step1>For each successful PnP estimation:</step1>
+                <step2>Subtract VO origin (first valid pose)</step2>
+                <step3>Append position to trajectory list</step3>
+                <step4>Repeat for all frames</step4>
+                <step5>Convert list to ndarray [M, 3]</step5>
+            </transformation>
+            <function>F8: Trajectory accumulation</function>
+            <output_size>M frames × 3 coordinates</output_size>
+        </flow>
+
+        <flow id="flow_umeyama_alignment">
+            <name>Alignment траєкторії методом Умейами</name>
+            <source>trajectory_unaligned + ground_truth</source>
+            <sink>trajectory_aligned + alignment_parameters</sink>
+            <transformation>
+                <step1>Compute centroids of both point clouds</step1>
+                <step2>Center both point clouds</step2>
+                <step3>Compute SVD of covariance matrix H = (B^T A) / N</step3>
+                <step4>Extract rotation R from U, S, V^T</step4>
+                <step5>Compute scale factor s</step5>
+                <step6>Compute translation t</step6>
+                <step7>Apply: A_aligned = s(R @ A^T)^T + t</step7>
+            </transformation>
+            <function>F9: Alignment with Umeyama algorithm</function>
+            <math_reference>https://en.wikipedia.org/wiki/Kabsch_algorithm</math_reference>
+        </flow>
+
+        <flow id="flow_metric_computation">
+            <name>Обчислення метрик точності</name>
+            <source>trajectory_aligned + ground_truth</source>
+            <sink>accuracy_metrics</sink>
+            <transformation>
+                <step1>Compute point-wise errors: error = ||aligned_vo - gt||</step1>
+                <step2>RMSE = sqrt(mean(error²))</step2>
+                <step3>Max error = max(error)</step3>
+                <step4>Mean error = mean(error)</step4>
+                <step5>Trajectory length = sum of consecutive distances</step5>
+                <step6>Processing time from start to finish</step6>
+            </transformation>
+            <function>F10: Compute accuracy metrics</function>
+            <unit>All distances in meters (m)</unit>
+        </flow>
+
+        <flow id="flow_comparison_analysis">
+            <name>Порівняльний аналіз Sparse vs Dense</name>
+            <source>accuracy_metrics (sparse) + accuracy_metrics (dense)</source>
+            <sink>comparison_report</sink>
+            <transformation>
+                <step1>Run both pipelines independently</step1>
+                <step2>Extract RMSE, processing time for each</step2>
+                <step3>Compute differences and ratios</step3>
+                <step4>Analyze trade-off: accuracy vs speed</step4>
+                <step5>Generate comparison conclusion</step5>
+            </transformation>
+            <function>F13: Feature comparison analysis</function>
+            <hypothesis>Sparse features provide comparable or better accuracy with faster computation</hypothesis>
+        </flow>
+
+        <flow id="flow_results_saving">
+            <name>Збереження результатів у файли</name>
+            <source>trajectory_aligned + accuracy_metrics + visualization_data</source>
+            <sink>output_files (TXT/CSV/JSON/PNG)</sink>
+            <transformation>
+                <step1>Save aligned trajectory to TXT/CSV based on SAVE_FORMAT</step1>
+                <step2>Save ground truth trajectory</step2>
+                <step3>If JSON: serialize all data with metadata</step3>
+                <step4>If SAVE_GRAPH: save matplotlib figures as PNG</step4>
+                <step5>Include RMSE, scale, rotation, translation in output</step5>
+            </transformation>
+            <function>F11: Save processing results</function>
+            <format_options>.txt, .csv, .json</format_options>
+        </flow>
+
+        <flow id="flow_visualization">
+            <name>Візуалізація результатів</name>
+            <source>trajectory_aligned + tracked_points + accuracy_metrics</source>
+            <sink>visualization_data (matplotlib figures)</sink>
+            <transformation>
+                <step1>Real-time plotting during processing</step1>
+                <step2>3D plot: VO trajectory vs GT</step2>
+                <step3>2D plot: X-Z projection with confidence regions</step3>
+                <step4>Feature image: tracked points with distance labels</step4>
+                <step5>Depth map: 3D point cloud colored by depth</step5>
+                <step6>Update plots every PLOT_EVERY frames</step6>
+            </transformation>
+            <function>F12: Visualize results</function>
+            <update_frequency>Every PLOT_EVERY frames (default 3)</update_frequency>
+        </flow>
+    </data_flows>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 5: МАТРИЦЯ ВІДПОВІДНОСТІ (CORRESPONDENCE MATRIX) -->
+    <!-- ============================================================================ -->
+    <correspondence_matrix>
+        <title>Матриця відповідності: Сутності ↔ Функції ↔ Етапи</title>
+        <legend>
+            ✓ = сутність повністю відповідає функції/етапу
+            ◐ = часткова відповідність
+            ─ = не застосовується
+        </legend>
+        <table>
+            <row>
+                <entity>stereo_images</entity>
+                <function_f1>✓</function_f1>
+                <function_f2>✓</function_f2>
+                <stage_1>✓</stage_1>
+                <stage_2>─</stage_2>
+                <stage_3>─</stage_3>
+                <stage_4>─</stage_4>
+            </row>
+            <row>
+                <entity>camera_parameters</entity>
+                <function_f1>✓</function_f1>
+                <function_f6>✓</function_f6>
+                <function_f7>✓</function_f7>
+                <stage_1>✓</stage_1>
+                <stage_2>◐</stage_2>
+                <stage_3>✓</stage_3>
+            </row>
+            <row>
+                <entity>keypoints_sparse</entity>
+                <function_f3>✓</function_f3>
+                <function_f4>✓</function_f4>
+                <stage_2>✓</stage_2>
+                <stage_3>◐</stage_3>
+            </row>
+            <row>
+                <entity>feature_matches</entity>
+                <function_f4>✓</function_f4>
+                <function_f5>✓</function_f5>
+                <stage_2>✓</stage_2>
+            </row>
+            <row>
+                <entity>triangulated_points</entity>
+                <function_f5>✓</function_f5>
+                <function_f6>✓</function_f6>
+                <function_f7>✓</function_f7>
+                <stage_2>✓</stage_2>
+                <stage_3>✓</stage_3>
+            </row>
+            <row>
+                <entity>tracked_points</entity>
+                <function_f6>✓</function_f6>
+                <function_f7>✓</function_f7>
+                <stage_3>✓</stage_3>
+            </row>
+            <row>
+                <entity>trajectory_aligned</entity>
+                <function_f9>✓</function_f9>
+                <function_f10>✓</function_f10>
+                <function_f12>✓</function_f12>
+                <stage_4>✓</stage_4>
+            </row>
+            <row>
+                <entity>accuracy_metrics</entity>
+                <function_f10>✓</function_f10>
+                <function_f13>✓</function_f13>
+                <stage_4>✓</stage_4>
+            </row>
+            <row>
+                <entity>comparison_report</entity>
+                <function_f13>✓</function_f13>
+                <stage_4>✓</stage_4>
+            </row>
+            <row>
+                <entity>output_files</entity>
+                <function_f11>✓</function_f11>
+                <stage_4>✓</stage_4>
+            </row>
+        </table>
+    </correspondence_matrix>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 6: СЛОВНИК ДАНИХ (DATA DICTIONARY) -->
+    <!-- ============================================================================ -->
+    <data_dictionary>
+        <section name="Core Concepts">
+            <term id="term_keypoint">
+                <name>Ключова точка (Keypoint)</name>
+                <definition>Точка у зображенні з характерними локальними ознаками, значима для аналізу та відслідковування</definition>
+                <attributes_referenced>keypoints_dense.keypoint, keypoints_sparse.keypoint</attributes_referenced>
+                <usage_context>Feature detection, matching, tracking</usage_context>
+            </term>
+            <term id="term_descriptor">
+                <name>Дескриптор (Descriptor)</name>
+                <definition>Векторна характеристика (32-біт для ORB) що описує локальну особливість ключової точки</definition>
+                <purpose>Для порівняння та матчингу ключових точок між зображеннями</purpose>
+            </term>
+            <term id="term_triangulation">
+                <name>Триангуляція (Triangulation)</name>
+                <definition>Процес відновлення тривимірних координат точки на основі двох або більше 2D проекцій</definition>
+                <mathematical_basis>Розв'язання системи рівнянь проективної геометрії</mathematical_basis>
+            </term>
+            <term id="term_pnp">
+                <name>Perspective-n-Point (PnP)</name>
+                <definition>Задача оцінювання положення та орієнтації камери на основі відомих 3D точок та їх 2D проекцій</definition>
+                <algorithms_used>RANSAC for robustness</algorithms_used>
+            </term>
+            <term id="term_optical_flow">
+                <name>Оптичний потік (Optical Flow)</name>
+                <definition>Поле векторів, що описує видимий рух пікселів між послідовними кадрами</definition>
+                <implementation>Lucas-Kanade method (pyramid version)</implementation>
+            </term>
+            <term id="term_trajectory">
+                <name>Траєкторія (Trajectory)</name>
+                <definition>Послідовність позицій камери/БПЛА у просторі впродовж часу</definition>
+                <variants>Unaligned (raw VO), Aligned (matched to ground truth)</variants>
+            </term>
+            <term id="term_umeyama">
+                <name>Alignment алгоритм Умейами (Umeyama/Kabsch)</name>
+                <definition>Метод обчислення оптимальної ротації, трансляції та масштабування для вирівнювання двох точкових хмар</definition>
+                <mathematical_basis>SVD decomposition of covariance matrix</mathematical_basis>
+                <output>s (scale), R (rotation), t (translation)</output>
+            </term>
+            <term id="term_rmse">
+                <name>Root Mean Square Error (RMSE)</name>
+                <definition>Квадратний корінь середнього квадрату помилок між траєкторіями</definition>
+                <formula>sqrt(mean((A_aligned - B)²))</formula>
+                <unit>meters</unit>
+                <interpretation>Lower RMSE indicates better accuracy</interpretation>
+            </term>
+        </section>
+
+        <section name="Data Formats and Standards">
+            <format id="fmt_yaml">
+                <name>YAML (sensor parameters)</name>
+                <file_example>cam0/sensor.yaml</file_example>
+                <structure>
+- intrinsics: [fx, fy, cx, cy]
+- distortion_coefficients: [k1, k2, p1, p2, ...]
+- T_BS: 4x4 transformation matrix
+                </structure>
+            </format>
+            <format id="fmt_csv">
+                <name>CSV (trajectories, ground truth)</name>
+                <file_example>state_groundtruth_estimate0/data.csv, vo_xyz_list.txt</file_example>
+                <structure>
+timestamp,x,y,z
+1413393290855760384,0.123,0.234,0.345
+1413393291234567890,0.456,0.567,0.678
+                </structure>
+            </format>
+            <format id="fmt_png">
+                <name>PNG (image frames)</name>
+                <file_example>cam0/data/*.png</file_example>
+                <properties>
+- Resolution: 480×752 pixels
+- Channels: 3 (BGR)
+- Encoding: 8-bit unsigned integer
+                </properties>
+            </format>
+            <format id="fmt_json">
+                <name>JSON (trajectory data export)</name>
+                <file_example>trajectory_data.json</file_example>
+                <structure>
+{
+  "vo_aligned": [[x,y,z], ...],
+  "gt": [[x,y,z], ...],
+  "rmse": 0.15,
+  "scale": 0.98,
+  "rotation": [[...]...],
+  "translation": [tx,ty,tz]
+}
+                </structure>
+            </format>
+        </section>
+    </data_dictionary>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 7: АНАЛІЗ ДАНИХ З ТОЧКИ ЗОРУ ТЕХНОЛОГІЇ -->
+    <!-- ============================================================================ -->
+    <technology_analysis>
+        <section name="Data Dependencies">
+            <dependency>
+                <from>user_config</from>
+                <to>All processing functions</to>
+                <type>Global parameters (threshold values, feature extraction parameters)</type>
+                <criticality>HIGH - incorrect config leads to algorithm failure</criticality>
+            </dependency>
+            <dependency>
+                <from>camera_parameters</from>
+                <to>Triangulation, PnP, rectification</to>
+                <type>Must be loaded before any frame processing</type>
+                <criticality>CRITICAL - missing calibration invalidates 3D reconstruction</criticality>
+            </dependency>
+            <dependency>
+                <from>ground_truth</from>
+                <to>Accuracy evaluation, alignment</to>
+                <type>Optional but needed for validation</type>
+                <criticality>MEDIUM - system works without GT, but cannot assess accuracy</criticality>
+            </dependency>
+            <dependency>
+                <from>triangulated_points (frame t)</from>
+                <to>Optical flow tracking (frame t+1)</to>
+                <type>Sequential - frame t must be processed before frame t+1</type>
+                <criticality>HIGH - breaks if frame order is violated</criticality>
+            </dependency>
+        </dependency>
+
+        <section name="Data Reinitialization Triggers">
+            <trigger>
+                <name>Low tracking success</name>
+                <condition>len(tracked_points) < MIN_MATCHES (14)</condition>
+                <action>Reset triangulated_points and re-detect features from current frame</action>
+                <recovery_data>keypoints_sparse from current frame</recovery_data>
+            </trigger>
+            <trigger>
+                <name>PnP estimation failure</name>
+                <condition>PnP RANSAC returns false OR inliers < MIN_MATCHES</condition>
+                <action>Skip frame, continue with previous pose</action>
+                <data_state>camera_pose_frame remains unchanged</data_state>
+            </trigger>
+            <trigger>
+                <name>Feature detection failure</name>
+                <condition>No descriptors detected OR too few matches after ratio test</condition>
+                <action>Report error, attempt reinitialization on next frame</action>
+                <recovery_timeout>3 frames to find valid features</recovery_timeout>
+            </trigger>
+        </section>
+
+        <section name="Data Aggregation and Accumulation">
+            <aggregation>
+                <name>Trajectory accumulation</name>
+                <source>Series of camera_pose_frame entities</source>
+                <aggregation_method>Append camera position to trajectory_unaligned list after each successful PnP</aggregation_method>
+                <memory_impact>~24 bytes per pose (3 floats × 8 bytes) = ~55 KB for 2280 frames</memory_impact>
+                <temporal_aspect>Real-time accumulation, no retrospective processing needed</temporal_aspect>
+            </aggregation>
+            <aggregation>
+                <name>Feature matching statistics</name>
+                <source>Multiple feature_matches from different frames</source>
+                <aggregation_method>Track success rate across frames for monitoring</aggregation_method>
+                <reporting>Console output and comparison report</reporting>
+            </aggregation>
+        </section>
+
+        <section name="Data Quality and Validation">
+            <validation>
+                <rule id="v1">
+                    <name>Depth range validation</name>
+                    <constraint>MIN_DEPTH &lt; point.z &lt; MAX_DEPTH</constraint>
+                    <enforcement_point>triangulated_points creation</enforcement_point>
+                    <consequence_of_violation>Point is filtered out and not used for tracking</consequence_of_violation>
+                </rule>
+            </validation>
+            <validation>
+                <rule id="v2">
+                    <name>Minimum match count</name>
+                    <constraint>len(feature_matches) ≥ MIN_MATCHES</constraint>
+                    <enforcement_point>triangulation and PnP stages</enforcement_point>
+                    <consequence_of_violation>Reinitialize features, skip frame</consequence_of_violation>
+                </rule>
+            </validation>
+            <validation>
+                <rule id="v3">
+                    <name>Configuration parameter constraints</name>
+                    <constraint>See user_config attributes</constraint>
+                    <enforcement_point>validate_parameters() in UI before starting VO</enforcement_point>
+                    <consequence_of_violation>Display error dialog, prompt user to correct parameters</consequence_of_violation>
+                </rule>
+            </validation>
+        </section>
+
+        <section name="Memory and Performance Considerations">
+            <memory_estimate>
+                <item>
+                    <entity>Single frame pair (480×752×3)</entity>
+                    <size>~1.1 MB</size>
+                    <lifecycle>Loaded from disk, processed, discarded (not cached)</lifecycle>
+                </item>
+                <item>
+                    <entity>Keypoints per frame (sparse ~450 points)</entity>
+                    <size>~36 KB (450 × 80 bytes per KeyPoint + descriptor)</size>
+                    <lifecycle>Retained for one frame, updated on next frame</lifecycle>
+                </item>
+                <item>
+                    <entity>Triangulated 3D points (sparse)</entity>
+                    <size>~14 KB (450 points × 3 floats × 8 bytes + metadata)</size>
+                    <lifecycle>Retained between frames for optical flow</lifecycle>
+                </item>
+                <item>
+                    <entity>Trajectory accumulation (~2280 poses)</entity>
+                    <size>~55 KB (2280 × 3 × 8 bytes)</size>
+                    <lifecycle>Accumulated throughout entire sequence</lifecycle>
+                </item>
+                <item>
+                    <entity>Total working memory (sparse mode)</entity>
+                    <size>~200-300 MB (buffers + intermediate data)</size>
+                    <note>Not including matplotlib figure buffers</note>
+                </item>
+            </memory_estimate>
+            <computation_complexity>
+                <function name="Feature detection (ORB)">O(H × W × log(features))</function>
+                <function name="Grid filtering">O(features × log(features))</function>
+                <function name="Feature matching">O(features × features) with BFMatcher</function>
+                <function name="Triangulation">O(matches)</function>
+                <function name="Optical flow (LK)">O(tracked_points × 21×21)</function>
+                <function name="PnP RANSAC">O(points × iterations) where iterations ~100</function>
+                <function name="Umeyama alignment">O(N²) for N points</function>
+            </computation_complexity>
+        </section>
+
+        <section name="Data Consistency and Atomicity">
+            <consistency_concern>
+                <name>Frame synchronization</name>
+                <description>Left and right camera frames must be from same timestamp</description>
+                <enforcement>Filenames are synchronized by timestamp in datasets</enforcement>
+                <assumption>Dataset provides properly synchronized stereo pairs</assumption>
+            </consistency_concern>
+            <consistency_concern>
+                <name>Pose accumulation ordering</name>
+                <description>Frames must be processed in temporal order</description>
+                <enforcement>Images loaded in sorted order, processed sequentially</enforcement>
+                <invariant>trajectory_unaligned[i] always corresponds to frame i</invariant>
+            </consistency_concern>
+        </section>
+    </technology_analysis>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 8: СХЕМА ВЗАЄМОДІЇ КОМПОНЕНТІВ (SYSTEM INTERACTIONS) -->
+    <!-- ============================================================================ -->
+    <system_interaction>
+        <component id="comp_ui">
+            <name>UI Module (coursework_main.py)</name>
+            <inputs>
+                <input>user_config (from GUI form)</input>
+            </inputs>
+            <outputs>
+                <output>user_config (validated and passed to VO)</output>
+            </outputs>
+            <data_validations>validate_parameters()</data_validations>
+            <role>Interface for user parameter input and process control</role>
+        </component>
+
+        <component id="comp_vo_sparse">
+            <name>Sparse VO Pipeline (sparse_f.py)</name>
+            <inputs>
+                <input>stereo_images</input>
+                <input>camera_parameters</input>
+                <input>user_config</input>
+                <input>ground_truth (optional)</input>
+            </inputs>
+            <outputs>
+                <output>trajectory_unaligned</output>
+                <output>trajectory_aligned (after Umeyama)</output>
+                <output>accuracy_metrics</output>
+                <output>visualization_data</output>
+            </outputs>
+            <key_functions>
+                <function>F2 (feature detection)</function>
+                <function>F3 (sparse filtering)</function>
+                <function>F4 (matching)</function>
+                <function>F5 (triangulation)</function>
+                <function>F6 (tracking)</function>
+                <function>F7 (PnP)</function>
+                <function>F8 (trajectory accumulation)</function>
+            </key_functions>
+        </component>
+
+        <component id="comp_vo_dense">
+            <name>Dense VO Pipeline (main_math_umeyama.py)</name>
+            <inputs>
+                <input>stereo_images</input>
+                <input>camera_parameters</input>
+                <input>user_config</input>
+                <input>ground_truth (optional)</input>
+            </inputs>
+            <outputs>
+                <output>trajectory_unaligned</output>
+                <output>trajectory_aligned</output>
+                <output>accuracy_metrics</output>
+                <output>visualization_data</output>
+            </outputs>
+            <key_difference>F3 is skipped - all detected features are used (no filtering)</key_difference>
+        </component>
+
+        <component id="comp_alignment">
+            <name>Alignment Module (umeyama_align function)</name>
+            <inputs>
+                <input>trajectory_unaligned (from VO)</input>
+                <input>ground_truth</input>
+            </inputs>
+            <outputs>
+                <output>trajectory_aligned</output>
+                <output>alignment_parameters (s, R, t)</output>
+            </outputs>
+            <role>Transforms VO trajectory to match GT coordinate frame</role>
+        </component>
+
+        <component id="comp_visualization">
+            <name>Visualization Module (matplotlib)</name>
+            <inputs>
+                <input>trajectory_aligned</input>
+                <input>tracked_points (for real-time display)</input>
+                <input>accuracy_metrics</input>
+            </inputs>
+            <outputs>
+                <output>visualization_data (figures)</output>
+                <output>output_files (PNG if SAVE_GRAPH=True)</output>
+            </outputs>
+            <role>Real-time and post-processing visualization</role>
+        </component>
+
+        <interaction id="inter_ui_vo">
+            <from>UI Module</from>
+            <to>VO Pipelines (Sparse and Dense)</to>
+            <data_transferred>user_config (validated parameters)</data_transferred>
+            <direction>One-way: UI → VO</direction>
+            <timing>At process start, before frame processing begins</timing>
+        </interaction>
+
+        <interaction id="inter_vo_vo">
+            <from>VO Sparse</from>
+            <to>VO Dense</to>
+            <data_transferred>None direct interaction</data_transferred>
+            <note>Both run independently, results compared post-hoc</note>
+            <parallelization>Potential to run in parallel (both read same input data)</parallelization>
+        </interaction>
+
+        <interaction id="inter_vo_alignment">
+            <from>VO Pipeline</from>
+            <to>Alignment Module</to>
+            <data_transferred>trajectory_unaligned, ground_truth</data_transferred>
+            <direction>Sequential: VO completes → Alignment processes result</direction>
+            <timing>After all frames processed</timing>
+        </interaction>
+
+        <interaction id="inter_vo_visualization">
+            <from>VO Pipeline</from>
+            <to>Visualization Module</to>
+            <data_transferred>Real-time: tracked_points, current pose every PLOT_EVERY frames</data_transferred>
+            <direction>Asynchronous: Visualization updated during processing</direction>
+            <timing>Every PLOT_EVERY frames (default 3)</timing>
+        </interaction>
+    </system_interaction>
+
+    <!-- ============================================================================ -->
+    <!-- РАЗДЕЛ 9: РЕЗЮМЕ ІНФОЛОГІЧНОЇ МОДЕЛІ -->
+    <!-- ============================================================================ -->
+    <summary>
+        <section name="Model Coverage">
+            <coverage_statement>
+                Дана інфологічна модель повністю описує структуру даних, потоки трансформацій та взаємодію компонентів 
+                системи візуальної одометрії БПЛА без використання БД. Модель охоплює всі аспекти технології функціонування 
+                системи, від завантаження вхідних даних до збереження результатів.
+            </coverage_statement>
+        </section>
+
+        <section name="Key Entities">
+            <entity_count>
+                <category>Input Data</category>
+                <count>4 entities</count>
+                <examples>stereo_images, camera_parameters, ground_truth, user_config</examples>
+            </entity_count>
+            <entity_count>
+                <category>Intermediate Data</category>
+                <count>7 entities</count>
+                <examples>preprocessed_images, keypoints_dense, keypoints_sparse, feature_matches, triangulated_points, tracked_points, camera_pose_frame</examples>
+            </entity_count>
+            <entity_count>
+                <category>Output Data</category>
+                <count>4 entities</count>
+                <examples>trajectory_aligned, accuracy_metrics, comparison_report, output_files</examples>
+            </entity_count>
+            <total_entities>15 main entities + related attributes and transformations</total_entities>
+        </section>
+
+        <section name="Data Flow Paths">
+            <path id="path_sparse_vo">
+                <name>Sparse VO Pipeline</name>
+                <stages>
+                    1. Input: stereo_images + camera_parameters + user_config
+                    2. Preprocessing: Convert to grayscale, undistort
+                    3. Dense detection: ORB features (1200+ keypoints)
+                    4. Sparse filtering: Grid bucketing (450 keypoints)
+                    5. Matching: BFMatcher with ratio test
+                    6. Triangulation: cv2.triangulatePoints()
+                    7. Tracking: Lucas-Kanade optical flow
+                    8. PnP: cv2.solvePnPRansac()
+                    9. Accumulation: Build trajectory_unaligned
+                    10. Alignment: Umeyama algorithm
+                    11. Metrics: Compute RMSE, error statistics
+                    12. Output: Save results, visualize
+                </stages>
+                <frame_count>2280 frames</frame_count>
+            </path>
+            <path id="path_dense_vo">
+                <name>Dense VO Pipeline</name>
+                <stages>Same as Sparse, but F3 (grid filtering) is skipped</stages>
+                <feature_count>~1200 keypoints per frame (vs 450 for sparse)</feature_count>
+            </path>
+            <path id="path_comparison">
+                <name>Comparison Analysis</name>
+                <stages>
+                    1. Run both pipelines: Sparse and Dense
+                    2. Compare: RMSE, processing time, feature count
+                    3. Compute ratios and differences
+                    4. Generate report and visualization
+                </stages>
+            </path>
+        </section>
+
+        <section name="Data Quality Assurance">
+            <validation_points>
+                - Parameter validation at UI level (validate_parameters)
+                - Depth range filtering at triangulation
+                - Minimum match count enforcement
+                - RANSAC inlier threshold at PnP
+                - Reinitialization triggers for low tracking success
+            </validation_points>
+            <error_handling>
+                - If insufficient matches: reinitialize features
+                - If PnP fails: skip frame, retain previous pose
+                - If no features detected: report error, attempt recovery
+                - If user config invalid: show dialog, prompt correction
+            </error_handling>
+        </section>
+
+        <section name="Alignment with Requirements">
+            <requirement id="req_f1">
+                <name>Load and preprocess stereo images</name>
+                <data_support>stereo_images → preprocessed_images</data_support>
+                <status>✓ Fully supported</status>
+            </requirement>
+            <requirement id="req_f3">
+                <name>Grid filter keypoints (sparse mode)</name>
+                <data_support>keypoints_dense → keypoints_sparse</data_support>
+                <status>✓ Fully supported</status>
+            </requirement>
+            <requirement id="req_f9">
+                <name>Alignment with Umeyama</name>
+                <data_support>trajectory_unaligned + ground_truth → trajectory_aligned</data_support>
+                <status>✓ Fully supported</status>
+            </requirement>
+            <requirement id="req_f13">
+                <name>Feature comparison analysis</name>
+                <data_support>accuracy_metrics (sparse) + accuracy_metrics (dense) → comparison_report</data_support>
+                <status>✓ Fully supported</status>
+            </requirement>
+        </section>
+    </summary>
+
+</infological_model>
