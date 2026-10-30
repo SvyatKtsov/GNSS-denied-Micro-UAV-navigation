@@ -1,0 +1,11 @@
+numpy
+scipy
+pyyaml
+matplotlib
+opencv-python<5      # opencv 5 changed cv2.stereoRectify
+# detection + gui only
+torch
+torchvision
+pillow
+tqdm
+PySide6

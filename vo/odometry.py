@@ -1,19 +1,20 @@
-"""Stereo visual odometry: stereo triangulation on keyframes + LK tracking + PnP for every frame.
+"""stereo visual odometry: stereo triangulation on keyframes + LK tracking + PnP for every frame.
 
-Frames:  W = rectified left camera at the first processed frame (VO world),
+frames:  W = rectified left camera at the first processed frame (VO world),
          C = rectified left camera at the current frame.  T_WC maps C-coordinates to W.
 """
 import cv2
 import numpy as np
 
+from .device import host
 from .features import Rectifier, StereoMatcher, track_lk
 from .geometry import inv_T, transform, rvec_tvec_to_T, T_to_rvec_tvec, rotation_angle, orthonormalize, to_T
 
 
 class StereoVO:
-    def __init__(self, cfg, calib):
+    def __init__(self, cfg, calib, gpu=False):
         self.cfg = cfg
-        self.rect = Rectifier(calib)
+        self.rect = Rectifier(calib, gpu)
         self.matcher = StereoMatcher(cfg, self.rect)
         self.K = self.rect.K
         # rectified-left camera -> body (IMU) frame, to compare with EuRoC ground truth
@@ -30,11 +31,12 @@ class StereoVO:
 
     # ---- keyframe: stereo matching + triangulation -------------------------------------------
     def _add_keyframe(self, gray_l, gray_r):
-        mask = np.full(gray_l.shape, 255, np.uint8)
+        w, h = self.rect.size
+        mask = np.full((h, w), 255, np.uint8)
         for x, y in self.pts_2d:                      # don't re-detect where we already track
             cv2.circle(mask, (int(x), int(y)), 10, 0, -1)
         pl, pr = self.matcher.match(gray_l, gray_r, mask)
-        P_c, p2d, _ = self.matcher.triangulate(pl, pr)
+        P_c, p2d = self.matcher.triangulate(pl, pr)
         self.pts_w = np.vstack([self.pts_w, transform(self.T_WC, P_c)])
         self.pts_2d = np.vstack([self.pts_2d, p2d]).astype(np.float32)
         self.kf_age = 0
@@ -70,7 +72,7 @@ class StereoVO:
             info['kf_points'] = self._add_keyframe(gray_l, gray_r)
             info['keyframe'] = True
         else:
-            pts, good = track_lk(self.prev_gray, gray_l, self.pts_2d, self.cfg)
+            pts, good = track_lk(self.prev_gray, gray_l, self.pts_2d, self.cfg, self.rect.size)
             self.pts_w, self.pts_2d = self.pts_w[good], pts[good].astype(np.float32)
             info['tracked'] = len(self.pts_w)
 
@@ -102,9 +104,8 @@ class StereoVO:
                 info['keyframe'] = True
 
         self.prev_gray = gray_l
-        info['T_WC'] = self.T_WC.copy()
         info['T_WB'] = self.T_WC @ self.T_C_B           # body pose in VO world
-        info['gray'] = gray_l
+        info['gray'] = host(gray_l)
         info['pts_2d'] = self.pts_2d
         info['depth'] = transform(inv_T(self.T_WC), self.pts_w)[:, 2] if len(self.pts_w) else np.zeros(0)
         return info

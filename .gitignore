@@ -1,9 +1,11 @@
-# large / reproducible -> Google Drive or public download
+# large or local-only files (see README for downloads)
 data/
-code_diploma_.zip
-_archive/
-models/heavy_model.pth
-models/faster_rcnn_euroc.pth
-models/ssd_model.pth
+object_detection_data/
+models/*.pth
+!models/ssd_v2.pth
+results/
+vicon_room2/
+*.part
+-home-*/
+.venv/
 __pycache__/
-*.pyc

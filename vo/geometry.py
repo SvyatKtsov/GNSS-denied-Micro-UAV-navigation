@@ -18,7 +18,7 @@ def transform(T, pts):
 
 
 def orthonormalize(T):
-    """Project the rotation block back onto SO(3); chained 4x4 products slowly lose orthogonality."""
+    """project the rotation block back onto SO(3); chained 4x4 products slowly lose orthogonality."""
     U, _, Vt = np.linalg.svd(T[:3, :3])
     R = U @ Vt
     if np.linalg.det(R) < 0:
@@ -39,10 +39,10 @@ def rotation_angle(R):
 
 
 def umeyama(src, dst, with_scale=True):
-    """Least-squares similarity (s, R, t) minimising sum ||dst - (s R src + t)||^2  (Umeyama, 1991).
+    """least-squares similarity (s, R, t) minimising sum ||dst - (s R src + t)||^2  (Umeyama, 1991).
 
-    For STEREO VO the scale is observable (metric baseline), so the honest evaluation is
-    with_scale=False (SE(3)). Sim(3) alignment hides scale errors and is meant for monocular VO.
+    for stereo vo the scale is observable (metric baseline), so the honest evaluation is
+    with_scale=False (se(3)); sim(3) alignment hides scale errors and is meant for monocular vo.
     """
     mu_s, mu_d = src.mean(0), dst.mean(0)
     xs, xd = src - mu_s, dst - mu_d
@@ -52,6 +52,6 @@ def umeyama(src, dst, with_scale=True):
     if np.linalg.det(U) * np.linalg.det(Vt) < 0:
         S[2, 2] = -1
     R = U @ S @ Vt
-    s = np.trace(np.diag(D) @ S) / xs.var(0).sum() if with_scale else 1.0
+    s = np.trace(np.diag(D) @ S) / max(xs.var(0).sum(), 1e-12) if with_scale else 1.0
     t = mu_d - s * R @ mu_s
     return s, R, t

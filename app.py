@@ -1,6 +1,6 @@
-"""GUI: stereo VO (separate process, live matplotlib window) + object detection on the left camera.
+"""gui: stereo vo (separate process, live matplotlib window) + object detection on the left camera.
 
-    python app.py          (needs torch + PySide6, e.g. ~/py_envs/py_env1)
+    python app.py          (needs torch, torchvision, PySide6)
 """
 import os
 import sys
@@ -22,7 +22,6 @@ from vo.euroc import stereo_pairs
 from detection.model import CLASSES, load_detector, predict, split_items, load_yolo
 from detection.metrics import DetectionMetrics
 
-DEFAULT_WEIGHTS = 'models/ssd_v2.pth' if os.path.exists('models/ssd_v2.pth') else 'models/ssd_model.pth'
 # VOConfig fields exposed in the form
 FORM_FIELDS = ['dataset_path', 'start_frame', 'max_frames', 'n_features', 'ratio', 'max_row_diff',
                'min_disparity', 'max_depth', 'pnp_reproj_err', 'min_inliers', 'kf_min_tracked']
@@ -30,7 +29,7 @@ FORM_FIELDS = ['dataset_path', 'start_frame', 'max_frames', 'n_features', 'ratio
 
 def vo_process(cfg_dict):
     import matplotlib
-    matplotlib.use('TkAgg')        # Qt is owned by the parent process
+    matplotlib.use('TkAgg')        # qt is owned by the parent process
     from run_vo import run
     run(VOConfig(**cfg_dict))
 
@@ -67,7 +66,7 @@ class MainWindow(QMainWindow):
             self.inputs[name] = QLineEdit(str(getattr(d, name))); form.addRow(name, self.inputs[name])
         self.detector_box = QComboBox(); self.detector_box.addItems(['orb', 'sift', 'gftt'])
         form.addRow('detector', self.detector_box)
-        self.weights = QLineEdit(DEFAULT_WEIGHTS); form.addRow('weights', self.weights)
+        self.weights = QLineEdit('models/ssd_v2.pth'); form.addRow('weights', self.weights)
 
         self.class_list = QListWidget()
         for c in CLASSES:
@@ -81,18 +80,14 @@ class MainWindow(QMainWindow):
 
     def _config(self):
         d = VOConfig()
-        vals = {}
-        for name, w in self.inputs.items():
-            vals[name] = type(getattr(d, name))(w.text())
-        vals['detector'] = self.detector_box.currentText()
-        vals['plot_live'] = True
-        return dataclasses.replace(d, **vals)
+        vals = {name: type(getattr(d, name))(w.text()) for name, w in self.inputs.items()}
+        return dataclasses.replace(d, **vals, detector=self.detector_box.currentText(), plot_live=True)
 
     def start(self):
         try:
             cfg = self._config()
             self.frames = stereo_pairs(cfg.dataset_path)
-            self.model, self.tf, self.legacy = load_detector(self.weights.text(), self.device)
+            self.model = load_detector(self.weights.text(), self.device)
         except Exception as e:
             QMessageBox.critical(self, 'помилка конфігурації', str(e)); return
         self.idx = min(cfg.start_frame, len(self.frames) - 1)
@@ -119,7 +114,7 @@ class MainWindow(QMainWindow):
         self.idx += 1
         bgr = cv2.imread(path)
         img = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-        boxes, labels, scores = predict(self.model, self.tf, img, self.device, 0.5, self.legacy)
+        boxes, labels, scores = predict(self.model, img, self.device, 0.5)
 
         lbl = self.val_labels.get(os.path.basename(path))
         if lbl is not None:

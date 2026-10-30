@@ -1,4 +1,4 @@
-"""Detection metrics: IoU matching, cumulative per-class P/R/F1, AP@0.5, confusion matrix."""
+"""detection metrics: IoU matching, cumulative per-class P/R/F1, AP@0.5, confusion matrix."""
 import json
 import numpy as np
 
@@ -78,18 +78,16 @@ class DetectionMetrics:
         with open(json_path, 'w') as f:
             json.dump(s, f, indent=2)
         if png_path:
-            import matplotlib
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as plt
+            from matplotlib.figure import Figure
             cm, labels = self.confusion, s['confusion_labels']
-            fig, ax = plt.subplots(figsize=(8, 7))
+            fig = Figure(figsize=(8, 7)); ax = fig.subplots()
             ax.imshow(cm, cmap='Greens')
             ax.set(xticks=range(len(labels)), yticks=range(len(labels)), xticklabels=labels, yticklabels=labels,
                    xlabel='predicted', ylabel='ground truth',
                    title=f"confusion matrix (IoU>={self.iou_thresh}, {self.frames} frames, mAP50={s['mAP50']:.3f})")
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            ax.tick_params(axis='x', labelrotation=45)
             for i in range(cm.shape[0]):
                 for j in range(cm.shape[1]):
                     ax.text(j, i, cm[i, j], ha='center', va='center', color='white' if cm[i, j] > cm.max() / 2 else 'black')
-            fig.tight_layout(); fig.savefig(png_path, dpi=150); plt.close(fig)
+            fig.tight_layout(); fig.savefig(png_path, dpi=150)
         return s

@@ -1,14 +1,16 @@
-"""Stereo front-end: rectification -> detection -> description -> L/R matching -> triangulation."""
+"""stereo front-end: rectification -> detection -> description -> L/R matching -> triangulation."""
 import cv2
 import numpy as np
 
+from .device import upload, host
 from .geometry import to_T
 
 
 class Rectifier:
-    def __init__(self, calib):
+    def __init__(self, calib, gpu=False):
         w, h = calib.size
-        R1, R2, P1, P2, Q, roi1, roi2 = cv2.stereoRectify(
+        self.gpu, self.size = gpu, (w, h)
+        R1, R2, P1, P2, *_ = cv2.stereoRectify(
             calib.K0, calib.D0, calib.K1, calib.D1, (w, h), calib.R, calib.t,
             flags=cv2.CALIB_ZERO_DISPARITY, alpha=0)   # alpha=0: no black invalid borders
         self.maps_l = cv2.initUndistortRectifyMap(calib.K0, calib.D0, R1, P1, (w, h), cv2.CV_32FC1)
@@ -17,24 +19,31 @@ class Rectifier:
         self.f, self.cx, self.cy = P1[0, 0], P1[0, 2], P1[1, 2]
         self.baseline = -P2[0, 3] / P2[0, 0]
         assert abs(P2[1, 3]) < 1e-6 and self.baseline > 0, 'stereo rig must be horizontal, left = cam0'
-        # X_rect = R1 @ X_cam0  ->  pose of the original cam0 w.r.t. the rectified left camera
+        # pose of the original cam0 w.r.t. the rectified left camera (X_rect = R1 @ X_cam0)
         self.T_rect_C0 = to_T(R1, np.zeros(3))
 
         self.row_offset = 0.0
+        self._upload_maps()
+
+    def _upload_maps(self):
+        self._dl = tuple(upload(m, self.gpu) for m in self.maps_l)
+        self._dr = tuple(upload(m, self.gpu) for m in self.maps_r)
 
     def __call__(self, img_l, img_r):
-        return (cv2.remap(img_l, *self.maps_l, cv2.INTER_LINEAR),
-                cv2.remap(img_r, *self.maps_r, cv2.INTER_LINEAR))
+        """rectified images: numpy on the cpu, cv2.UMat (stays in gpu memory) on the gpu."""
+        return (cv2.remap(upload(img_l, self.gpu), *self._dl, cv2.INTER_LINEAR),
+                cv2.remap(upload(img_r, self.gpu), *self._dr, cv2.INTER_LINEAR))
 
     def self_calibrate(self, raw_pairs, min_matches=200):
-        """Online check of the factory calibration: in a perfectly rectified pair, y_l - y_r = 0.
-        A constant residual = small relative pitch between the cameras (e.g. ~1.8 px in V2_01,
-        the rig moved after calibration). Estimate it robustly and shift the right image."""
+        """online check of the factory calibration: in a perfectly rectified pair y_l - y_r = 0.
+        a constant residual = small relative pitch between the cameras (~1.8 px in V2_01, the rig
+        moved after calibration); estimate it robustly and shift the right image."""
         orb, bf, dy = cv2.ORB_create(2000), cv2.BFMatcher(cv2.NORM_HAMMING), []
         for img_l, img_r in raw_pairs:
             gl, gr = self(img_l, img_r)
             kl, dl = orb.detectAndCompute(gl, None)
             kr, dr = orb.detectAndCompute(gr, None)
+            dl, dr = host(dl), host(dr)
             if dl is None or dr is None:
                 continue
             for m in bf.knnMatch(dl, dr, k=2):
@@ -48,12 +57,13 @@ class Rectifier:
         if abs(off) > 0.3:
             self.maps_r = (self.maps_r[0], self.maps_r[1] - off)
             self.row_offset += off
+            self._upload_maps()
         return off
 
 
 def bucket(kps, shape, grid, per_cell):
-    """Keep the strongest `per_cell` keypoints in every grid cell -> uniform spatial coverage,
-    which makes PnP far better conditioned than many clustered points."""
+    """keep the strongest `per_cell` keypoints in every grid cell -> uniform spatial coverage,
+    which makes pnp far better conditioned than many clustered points."""
     gh, gw = grid
     h, w = shape[:2]
     cells = {}
@@ -84,10 +94,10 @@ class FeatureExtractor:
     def detect(self, gray, mask=None, n=None):
         n = n or self.cfg.n_features
         if self.kind == 'gftt':
-            pts = cv2.goodFeaturesToTrack(gray, n, 0.01, 7, mask=mask, blockSize=5)
-            if pts is None:
+            pts = host(cv2.goodFeaturesToTrack(gray, n, 0.01, 7, mask=mask, blockSize=5))
+            if pts is None or pts.size == 0:
                 return []
-            pts = cv2.cornerSubPix(gray, pts, (5, 5), (-1, -1),
+            pts = cv2.cornerSubPix(host(gray), pts, (5, 5), (-1, -1),
                                    (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
             return [cv2.KeyPoint(float(x), float(y), 7, response=1.0) for x, y in pts.reshape(-1, 2)]
         return list(self.det.detect(gray, mask))
@@ -96,7 +106,7 @@ class FeatureExtractor:
         if self.kind == 'gftt' or not kps:
             return kps, None
         kps, desc = self.det.compute(gray, kps)
-        return list(kps), desc
+        return list(kps), host(desc)
 
 
 def _lk(img_a, img_b, pts_a, pts_b=None, win=21, levels=3):
@@ -108,23 +118,23 @@ def _lk(img_a, img_b, pts_a, pts_b=None, win=21, levels=3):
         img_a, img_b, pts_a.reshape(-1, 1, 2).astype(np.float32), pts_b,
         winSize=(win, win), maxLevel=levels, flags=flags,
         criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
-    return out.reshape(-1, 2), st.ravel().astype(bool)
+    return host(out).reshape(-1, 2), host(st).ravel().astype(bool)
 
 
-def track_lk(prev, curr, pts, cfg):
-    """Temporal tracking with a forward-backward consistency check."""
+def track_lk(prev, curr, pts, cfg, size):
+    """temporal tracking with a forward-backward consistency check. size = (w, h)."""
     if len(pts) == 0:
         return pts, np.zeros(0, bool)
     fwd, st1 = _lk(prev, curr, pts, win=cfg.lk_win, levels=cfg.lk_levels)
     bwd, st2 = _lk(curr, prev, fwd, win=cfg.lk_win, levels=cfg.lk_levels)
-    h, w = curr.shape[:2]
+    w, h = size
     inside = (fwd[:, 0] >= 0) & (fwd[:, 0] < w - 1) & (fwd[:, 1] >= 0) & (fwd[:, 1] < h - 1)
     good = st1 & st2 & inside & (np.linalg.norm(pts - bwd, axis=1) < cfg.fb_thresh)
     return fwd, good
 
 
 class StereoMatcher:
-    """Matches features of a RECTIFIED pair. In a rectified pair the epipolar line of a left
+    """matches features of a rectified pair: there the epipolar line of a left
     pixel is the same row in the right image and disparity d = x_l - x_r > 0, so we only allow
     candidates satisfying that (instead of estimating a fundamental matrix with RANSAC)."""
 
@@ -140,9 +150,10 @@ class StereoMatcher:
                (d >= self.cfg.min_disparity) & (d <= self.max_disp)
 
     def match(self, gray_l, gray_r, mask_l=None):
-        """Returns pts_l (N,2), pts_r (N,2) of verified correspondences."""
+        """pts_l (N,2), pts_r (N,2) of verified correspondences."""
         cfg = self.cfg
-        kps_l = bucket(self.fx.detect(gray_l, mask_l), gray_l.shape, cfg.grid, cfg.per_cell)
+        w, h = self.rect.size
+        kps_l = bucket(self.fx.detect(gray_l, mask_l), (h, w), cfg.grid, cfg.per_cell)
         if not kps_l:
             return np.zeros((0, 2), np.float32), np.zeros((0, 2), np.float32)
 
@@ -191,8 +202,8 @@ class StereoMatcher:
         return pl[ok].astype(np.float32), pr[ok].astype(np.float32)
 
     def triangulate(self, pl, pr):
-        """Rectified stereo: Z = f*B/d, X = (u-cx)Z/f, Y = (v-cy)Z/f  (left rectified camera frame).
-        Identical to cv2.triangulatePoints(P1, P2, ...) for a rectified pair, but exact and cheaper."""
+        """rectified stereo: Z = f*B/d, X = (u-cx)Z/f, Y = (v-cy)Z/f  (left rectified camera frame).
+        identical to cv2.triangulatePoints(P1, P2, ...) for a rectified pair, but exact and cheaper."""
         r = self.rect
         d = pl[:, 0] - pr[:, 0]
         Z = r.f * r.baseline / d
@@ -200,4 +211,4 @@ class StereoMatcher:
         Y = (pl[:, 1] - r.cy) * Z / r.f
         P = np.stack([X, Y, Z], axis=1)
         ok = (Z > self.cfg.min_depth) & (Z < self.cfg.max_depth)
-        return P[ok], pl[ok], ok
+        return P[ok], pl[ok]
