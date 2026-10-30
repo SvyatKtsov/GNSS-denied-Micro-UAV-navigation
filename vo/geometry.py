@@ -18,7 +18,7 @@ def transform(T, pts):
 
 
 def orthonormalize(T):
-    """project the rotation block back onto SO(3); chained 4x4 products slowly lose orthogonality."""
+    """project the rotation block back onto SO(3); chained 4*4 products slowly lose orthogonality."""
     U, _, Vt = np.linalg.svd(T[:3, :3])
     R = U @ Vt
     if np.linalg.det(R) < 0:

@@ -3,7 +3,7 @@
     python run_vo.py --seq data/euroc/V2_01_easy/mav0                    # live window, results in results/
     python run_vo.py --seq data/euroc/V2_02_medium/mav0 --detector sift
     python run_vo.py --video data/videos/cam0_vid.mp4 data/videos/cam1_vid.mp4 --seq data/euroc/V2_01_easy/mav0
-    python run_vo.py --compare                                           # every detector x every data/euroc sequence
+    python run_vo.py --compare                                           # every detector * every data/euroc sequence
 """
 import os
 import glob

@@ -41,13 +41,13 @@ python run_vo.py --seq data/euroc/V2_02_medium/mav0 --detector sift   # orb | si
 python run_vo.py --seq data/euroc/V1_01_easy/mav0 --start 200 --frames 500 --no-live
 python run_vo.py --seq data/euroc/V2_01_easy/mav0 --cpu 0             # image ops on the GPU (OpenCL, any vendor)
 python run_vo.py --video data/videos/cam0_vid.mp4 data/videos/cam1_vid.mp4 --seq data/euroc/V2_01_easy/mav0
-python run_vo.py --compare                                            # every detector x every sequence -> results/comparison.md
+python run_vo.py --compare                                            # every detector * every sequence -> results/comparison.md
 
 python app.py                                                         # GUI: VO window + object detection
 python -m detection.train --eval-only models/ssd_v2.pth               # needs the labelled frames in object_detection_data/
 ```
 
-`--cpu 1` (default) is faster on EuRoC: 752x480 images are too small for the GPU transfer to pay off.
+`--cpu 1` (default) is faster on EuRoC: 752*480 images are too small for the GPU transfer to pay off.
 
 ## Results (whole sequences, `python run_vo.py --compare`)
 
